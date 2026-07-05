@@ -1,0 +1,50 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    border-color: theme("colors.nexa.line");
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-nexa-bg text-nexa-ink font-sans antialiased;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+
+  h1, h2, h3, h4 {
+    @apply font-display leading-tight text-nexa-ink;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: theme("colors.nexa.line");
+    border-radius: 999px;
+    border: 3px solid theme("colors.nexa.bg");
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: theme("colors.nexa.ink-4");
+  }
+}
+
+@layer components {
+  .nexa-card {
+    @apply bg-white rounded-lg border border-nexa-line shadow-nexa-card;
+  }
+
+  .nexa-scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+}
