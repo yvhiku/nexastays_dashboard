@@ -563,6 +563,28 @@ export async function fetchOccupantIdDocumentBlobUrl(
   return URL.createObjectURL(blob);
 }
 
+export function hostApplicationDocumentApiPath(
+  applicationId: string,
+  kind: "front" | "back" | "selfie",
+) {
+  return `${apiConfig.staysBaseUrl}/admin/stays/host-applications/${applicationId}/documents/${kind}`;
+}
+
+export async function fetchHostApplicationDocumentBlobUrl(
+  applicationId: string,
+  kind: "front" | "back" | "selfie",
+): Promise<string> {
+  const token = getAccessToken();
+  const res = await fetch(hostApplicationDocumentApiPath(applicationId, kind), {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to load host document (${res.status})`);
+  }
+  const blob = await res.blob();
+  return URL.createObjectURL(blob);
+}
+
 export async function fetchHosts() {
   const data = await apiFetch<Paginated<Parameters<typeof mapHost>[0]>>(
     "/admin/stays/hosts?limit=200",

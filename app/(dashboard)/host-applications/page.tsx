@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Eye, FileText, X } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
@@ -11,6 +11,7 @@ import { SearchInput, FilterTabs } from "@/components/ui/toolbar";
 import { Avatar } from "@/components/ui/avatar";
 import {
   approveHostApplication,
+  fetchHostApplicationDocumentBlobUrl,
   fetchHostApplications,
   rejectHostApplication,
 } from "@/lib/api/stays-admin";
@@ -72,7 +73,7 @@ export default function HostApplicationsPage() {
     const matchQuery =
       app.name.toLowerCase().includes(q) ||
       app.email.toLowerCase().includes(q) ||
-      app.city.toLowerCase().includes(q) ||
+      app.phone.toLowerCase().includes(q) ||
       app.userId.toLowerCase().includes(q);
     return matchFilter && matchQuery;
   });
@@ -86,8 +87,8 @@ export default function HostApplicationsPage() {
     try {
       if (action === "approve") await approveHostApplication(id);
       else await rejectHostApplication(id, reason?.trim() || "Rejected by admin");
-      await reload();
       setSelected(null);
+      await reload();
     } finally {
       setActing(null);
     }
@@ -128,7 +129,7 @@ export default function HostApplicationsPage() {
         <SearchInput
           value={query}
           onChange={setQuery}
-          placeholder="Search name, email, city…"
+          placeholder="Search name, email, phone…"
           className="lg:w-72"
         />
       </div>
@@ -159,7 +160,9 @@ export default function HostApplicationsPage() {
                       <Avatar name={app.name} color={app.avatarColor} size="sm" />
                       <div className="min-w-0">
                         <p className="truncate font-medium text-nexa-ink">{app.name}</p>
-                        <p className="truncate text-xs text-nexa-ink-4">{app.city}</p>
+                        <p className="truncate text-xs text-nexa-ink-4">
+                          {app.hostType?.replace(/_/g, " ") ?? "Host applicant"}
+                        </p>
                       </div>
                     </div>
                   </TD>
@@ -262,10 +265,81 @@ function ApplicationDrawer({
   canReview: boolean;
 }) {
   const [rejectReason, setRejectReason] = useState("");
+  const [docUrls, setDocUrls] = useState<{
+    front?: string;
+    back?: string;
+    selfie?: string;
+  }>({});
+  const [docError, setDocError] = useState<string | null>(null);
+  const [lightbox, setLightbox] = useState<{ label: string; url: string } | null>(
+    null,
+  );
+  const blobUrlsRef = useRef<string[]>([]);
 
   useEffect(() => {
     setRejectReason("");
+    setLightbox(null);
   }, [application?.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadDocs() {
+      for (const url of blobUrlsRef.current) URL.revokeObjectURL(url);
+      blobUrlsRef.current = [];
+
+      if (!application) {
+        setDocUrls({});
+        setDocError(null);
+        return;
+      }
+      setDocUrls({});
+      setDocError(null);
+      try {
+        const next: { front?: string; back?: string; selfie?: string } = {};
+        const kinds: Array<{
+          key: "front" | "back" | "selfie";
+          enabled: boolean;
+        }> = [
+          { key: "front", enabled: !!application.documentFrontAssetId },
+          { key: "back", enabled: !!application.documentBackAssetId },
+          { key: "selfie", enabled: !!application.selfieAssetId },
+        ];
+        for (const { key, enabled } of kinds) {
+          if (!enabled) continue;
+          const url = await fetchHostApplicationDocumentBlobUrl(application.id, key);
+          blobUrlsRef.current.push(url);
+          if (!cancelled) next[key] = url;
+        }
+        if (!cancelled) setDocUrls(next);
+        else {
+          for (const url of blobUrlsRef.current) URL.revokeObjectURL(url);
+          blobUrlsRef.current = [];
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setDocError(err instanceof Error ? err.message : "Failed to load documents");
+        }
+      }
+    }
+
+    loadDocs();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    application?.id,
+    application?.documentFrontAssetId,
+    application?.documentBackAssetId,
+    application?.selfieAssetId,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      for (const url of blobUrlsRef.current) URL.revokeObjectURL(url);
+      blobUrlsRef.current = [];
+    };
+  }, []);
 
   return (
     <>
@@ -301,7 +375,6 @@ function ApplicationDrawer({
 
             <dl className="mt-5 grid grid-cols-2 gap-4 text-sm">
               <Detail label="Phone" value={application.phone} />
-              <Detail label="City" value={application.city} />
               <Detail
                 label="Host type"
                 value={application.hostType?.replace(/_/g, " ") ?? "—"}
@@ -333,17 +406,32 @@ function ApplicationDrawer({
                   <FileText className="h-3.5 w-3.5" />
                   Uploaded documents
                 </p>
-                <ul className="mt-2 space-y-1 text-xs text-nexa-ink-3">
+                {docError && (
+                  <p className="mt-2 text-xs text-nexa-danger">{docError}</p>
+                )}
+                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                   {application.documentFrontAssetId && (
-                    <li>ID front: {application.documentFrontAssetId.slice(0, 8)}…</li>
+                    <DocPreview
+                      label="ID front"
+                      url={docUrls.front}
+                      onOpen={(url) => setLightbox({ label: "ID front", url })}
+                    />
                   )}
                   {application.documentBackAssetId && (
-                    <li>ID back: {application.documentBackAssetId.slice(0, 8)}…</li>
+                    <DocPreview
+                      label="ID back"
+                      url={docUrls.back}
+                      onOpen={(url) => setLightbox({ label: "ID back", url })}
+                    />
                   )}
                   {application.selfieAssetId && (
-                    <li>Selfie: {application.selfieAssetId.slice(0, 8)}…</li>
+                    <DocPreview
+                      label="Selfie"
+                      url={docUrls.selfie}
+                      onOpen={(url) => setLightbox({ label: "Selfie", url })}
+                    />
                   )}
-                </ul>
+                </div>
               </div>
             )}
 
@@ -399,7 +487,75 @@ function ApplicationDrawer({
           </div>
         )}
       </aside>
+
+      {lightbox && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-nexa-ink/80 p-4"
+          onClick={() => setLightbox(null)}
+        >
+          <div
+            className="relative max-h-[90vh] w-full max-w-3xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <p className="text-sm font-medium text-white">{lightbox.label}</p>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-white hover:bg-white/10"
+                onClick={() => setLightbox(null)}
+              >
+                <X className="h-4 w-4" /> Close
+              </Button>
+            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={lightbox.url}
+              alt={lightbox.label}
+              className="max-h-[85vh] w-full rounded-md bg-white object-contain"
+            />
+          </div>
+        </div>
+      )}
     </>
+  );
+}
+
+function DocPreview({
+  label,
+  url,
+  onOpen,
+}: {
+  label: string;
+  url?: string;
+  onOpen: (url: string) => void;
+}) {
+  return (
+    <div>
+      <p className="mb-1 text-xs text-nexa-ink-4">{label}</p>
+      {url ? (
+        <button
+          type="button"
+          onClick={() => onOpen(url)}
+          className="group relative block w-full overflow-hidden rounded-md border border-nexa-line text-left focus:outline-none focus:ring-2 focus:ring-nexa-primary"
+          title={`View ${label}`}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={url}
+            alt={label}
+            className="max-h-44 w-full bg-nexa-bg-2 object-contain"
+          />
+          <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-nexa-ink/55 px-2 py-1 text-[11px] text-white opacity-0 transition-opacity group-hover:opacity-100">
+            Click to enlarge
+          </span>
+        </button>
+      ) : (
+        <div className="flex h-28 items-center justify-center rounded-md border border-dashed border-nexa-line bg-nexa-bg-2 text-xs text-nexa-ink-4">
+          Loading…
+        </div>
+      )}
+    </div>
   );
 }
 
