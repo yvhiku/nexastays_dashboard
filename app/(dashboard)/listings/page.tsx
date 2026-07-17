@@ -91,7 +91,8 @@ export default function ListingsPage() {
           onChange={setFilter}
           options={[
             { value: "all", label: "All", count: counts.all },
-            { value: "active", label: "Active", count: counts.active ?? 0 },
+            { value: "active", label: "Live", count: counts.active ?? 0 },
+            { value: "approved", label: "Approved", count: counts.approved ?? 0 },
             { value: "pending", label: "Pending", count: counts.pending ?? 0 },
             { value: "flagged", label: "Flagged", count: counts.flagged ?? 0 },
             { value: "suspended", label: "Suspended", count: counts.suspended ?? 0 },
@@ -192,8 +193,19 @@ export default function ListingsPage() {
                           </Button>
                         </>
                       )}
+                      {l.status === "approved" && (
+                        <Button
+                          variant="success"
+                          size="icon"
+                          title="Set live"
+                          disabled={acting === l.id}
+                          onClick={() => runAction(l.id, "live")}
+                        >
+                          <Check className="h-4 w-4" />
+                        </Button>
+                      )}
                       {l.status === "active" && (
-                        <Button variant="outline" size="icon" title="Set live" disabled>
+                        <Button variant="outline" size="icon" title="Live" disabled>
                           <Ban className="h-4 w-4" />
                         </Button>
                       )}

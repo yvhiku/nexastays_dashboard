@@ -36,8 +36,12 @@ function mapListingStatus(
 ): Listing["status"] {
   switch (status?.toUpperCase()) {
     case "LIVE":
-    case "APPROVED":
       return "active";
+    // APPROVED passed moderation but is NOT public until an admin sets it live.
+    case "APPROVED":
+      return "approved";
+    case "PAUSED":
+      return "suspended";
     case "SUBMITTED":
     case "DRAFT":
       return "pending";

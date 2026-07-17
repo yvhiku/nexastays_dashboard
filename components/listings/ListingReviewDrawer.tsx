@@ -381,7 +381,7 @@ export function ListingReviewDrawer({
                         <X className="h-4 w-4" /> Reject
                       </Button>
                     </>
-                  ) : listing.status !== "active" ? (
+                  ) : listing.status === "approved" ? (
                     <Button
                       variant="success"
                       className="flex-1"

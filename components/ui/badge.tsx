@@ -43,6 +43,7 @@ type StatusTone = BadgeProps["variant"];
 
 const statusMap: Record<string, StatusTone> = {
   active: "success",
+  approved: "info",
   confirmed: "success",
   completed: "info",
   verified: "success",

@@ -53,6 +53,7 @@ export interface HostApplication {
 
 export type ListingStatus =
   | "active"
+  | "approved"
   | "pending"
   | "rejected"
   | "suspended"
