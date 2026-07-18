@@ -4,61 +4,128 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { Menu, X } from "lucide-react";
-import { navItems } from "@/lib/nav";
+import { ChevronDown, Menu, X } from "lucide-react";
+import { navEntries, type NavItem } from "@/lib/nav";
 import { fetchStats, EMPTY_DASHBOARD_STATS } from "@/lib/api/stays-admin";
 import { cn } from "@/lib/utils";
-import { useAsyncList, useAsyncStats } from "@/lib/hooks/use-async-data";
+import { useAsyncStats } from "@/lib/hooks/use-async-data";
+
+function NavLink({
+  item,
+  pathname,
+  metrics,
+  onNavigate,
+}: {
+  item: NavItem;
+  pathname: string;
+  metrics: Record<string, number>;
+  onNavigate: () => void;
+}) {
+  const active =
+    item.href === "/"
+      ? pathname === "/"
+      : pathname === item.href || pathname.startsWith(`${item.href}/`);
+  const Icon = item.icon;
+  const badge = item.badgeKey ? metrics[item.badgeKey] : undefined;
+  if (item.hideWhenBadgeZero && (!badge || badge <= 0)) return null;
+
+  return (
+    <Link
+      href={item.href}
+      onClick={onNavigate}
+      className={cn(
+        "group flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors",
+        active
+          ? "bg-nexa-primary-soft text-nexa-primary-dark"
+          : "text-nexa-ink-3 hover:bg-nexa-bg-2 hover:text-nexa-ink",
+      )}
+    >
+      <Icon
+        className={cn(
+          "h-[18px] w-[18px] shrink-0",
+          active ? "text-nexa-primary" : "text-nexa-ink-4 group-hover:text-nexa-ink-2",
+        )}
+      />
+      <span className="flex-1 truncate">{item.label}</span>
+      {badge !== undefined && badge > 0 && (
+        <span
+          className={cn(
+            "rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
+            active
+              ? "bg-nexa-primary text-white"
+              : "bg-nexa-primary-soft text-nexa-primary-dark",
+          )}
+        >
+          {badge}
+        </span>
+      )}
+    </Link>
+  );
+}
 
 export function Sidebar() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const [trustOpen, setTrustOpen] = useState(
+    () =>
+      pathname.startsWith("/kyc") ||
+      pathname.startsWith("/reviews") ||
+      pathname.startsWith("/moderation") ||
+      pathname.startsWith("/audit-logs"),
+  );
   const { data: stats } = useAsyncStats(fetchStats, EMPTY_DASHBOARD_STATS, []);
+  const metrics = stats as unknown as Record<string, number>;
 
-  const metrics = stats;
   const nav = (
     <nav className="flex flex-col gap-0.5 px-3">
-      {navItems.map((item) => {
-        const active =
-          item.href === "/"
-            ? pathname === "/"
-            : pathname.startsWith(item.href);
-        const Icon = item.icon;
-        const badge = item.badgeKey
-          ? (metrics as Record<string, number>)[item.badgeKey]
-          : undefined;
-        return (
-          <Link
-            key={item.href}
-            href={item.href}
-            onClick={() => setOpen(false)}
-            className={cn(
-              "group flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors",
-              active
-                ? "bg-nexa-primary-soft text-nexa-primary-dark"
-                : "text-nexa-ink-3 hover:bg-nexa-bg-2 hover:text-nexa-ink",
-            )}
-          >
-            <Icon
-              className={cn(
-                "h-[18px] w-[18px] shrink-0",
-                active ? "text-nexa-primary" : "text-nexa-ink-4 group-hover:text-nexa-ink-2",
-              )}
+      {navEntries.map((entry) => {
+        if (entry.type === "link") {
+          return (
+            <NavLink
+              key={entry.item.href}
+              item={entry.item}
+              pathname={pathname}
+              metrics={metrics}
+              onNavigate={() => setOpen(false)}
             />
-            <span className="flex-1 truncate">{item.label}</span>
-            {badge !== undefined && badge > 0 && (
-              <span
+          );
+        }
+        const { group } = entry;
+        const groupActive = group.items.some(
+          (i) => pathname === i.href || pathname.startsWith(`${i.href}/`),
+        );
+        return (
+          <div key={group.label} className="mt-2">
+            <button
+              type="button"
+              onClick={() => setTrustOpen((v) => !v)}
+              className={cn(
+                "flex w-full items-center gap-2 rounded-md px-3 py-2 text-[11px] font-semibold uppercase tracking-wide",
+                groupActive ? "text-nexa-primary" : "text-nexa-ink-4",
+              )}
+            >
+              <span className="flex-1 text-left">{group.label}</span>
+              <ChevronDown
                 className={cn(
-                  "rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
-                  active
-                    ? "bg-nexa-primary text-white"
-                    : "bg-nexa-primary-soft text-nexa-primary-dark",
+                  "h-3.5 w-3.5 transition-transform",
+                  trustOpen ? "rotate-0" : "-rotate-90",
                 )}
-              >
-                {badge}
-              </span>
+              />
+            </button>
+            {trustOpen && (
+              <div className="ml-1 flex flex-col gap-0.5 border-l border-nexa-line pl-1">
+                {group.items.map((item) => (
+                  <NavLink
+                    key={item.href}
+                    item={item}
+                    pathname={pathname}
+                    metrics={metrics}
+                    onNavigate={() => setOpen(false)}
+                  />
+                ))}
+              </div>
             )}
-          </Link>
+          </div>
         );
       })}
     </nav>
@@ -66,7 +133,6 @@ export function Sidebar() {
 
   return (
     <>
-      {/* Mobile toggle */}
       <button
         onClick={() => setOpen(true)}
         className="fixed left-4 top-4 z-40 lg:hidden rounded-md border border-nexa-line bg-white p-2 shadow-nexa-sm"
@@ -102,7 +168,7 @@ export function Sidebar() {
                 Nexa Stays
               </p>
               <p className="text-[11px] font-medium text-nexa-primary">
-                Admin Console
+                Operations
               </p>
             </div>
           </Link>

@@ -116,6 +116,8 @@ export type DashboardStats = {
   openRisks: number;
   pendingKyc: number;
   openTickets: number;
+  /** Sum of actionable queue counts for Operations badge. */
+  opsAttention: number;
   totalUsers: number;
   activeListings: number;
   monthlyBookings: number;
@@ -145,6 +147,7 @@ export const EMPTY_DASHBOARD_STATS: DashboardStats = {
   openRisks: 0,
   pendingKyc: 0,
   openTickets: 0,
+  opsAttention: 0,
   totalUsers: 0,
   activeListings: 0,
   monthlyBookings: 0,
@@ -334,6 +337,7 @@ type HostProfileRow = {
   submitted_at?: string | null;
   reviewed_at?: string | null;
   rejection_reason?: string | null;
+  listing_frozen?: boolean;
   created_at?: string;
 };
 
@@ -391,6 +395,7 @@ export function mapHostApplication(row: HostProfileRow): HostApplication {
     submittedAt: row.submitted_at ?? row.created_at ?? "",
     reviewedAt: row.reviewed_at ?? undefined,
     rejectionReason: row.rejection_reason ?? undefined,
+    listingFrozen: Boolean(row.listing_frozen),
     status: hostApplicationUiStatus(row),
     avatarColor: thumbColor(row.user_id),
   };
@@ -443,6 +448,118 @@ export function mapAuditLog(row: {
   };
 }
 
+export type OpsFunnelStage = {
+  key: string;
+  label: string;
+  count: number;
+  unit: "hosts" | "listings";
+};
+
+export type OpsOverview = {
+  snapshot: {
+    liveListings: number;
+    activeHosts: number;
+    activeBookings: number;
+    revenueToday: number;
+    revenueMonth: number;
+    avgRating: number;
+  };
+  attention: {
+    pendingListings: number;
+    pendingHostApplications: number;
+    pendingKyc: number | null;
+    needsChangesListings: number;
+    failedPayouts: number;
+    urgentAlerts: number;
+  };
+  healthScore: {
+    score: number;
+    label: "Healthy" | "Watch" | "Critical";
+  };
+  funnel: {
+    period: string;
+    stages: OpsFunnelStage[];
+    conversions: {
+      applicationsToApproved: number | null;
+      approvedToDraft: number | null;
+      draftToSubmitted: number | null;
+      submittedToLive: number | null;
+      liveToFirstBooking: number | null;
+    };
+  };
+  opsTiming: {
+    avgHoursToHostApproval: number | null;
+    avgDaysDraftToSubmit: number | null;
+  };
+  series: { date: string; bookings: number; gmv: number; revenue: number }[];
+  activityGrouped: {
+    key: string;
+    label: string;
+    listingsApproved: number;
+    hostsApproved: number;
+    bookings: number;
+    reviews: number;
+    cancellations: number;
+  }[];
+};
+
+export const EMPTY_OPS_OVERVIEW: OpsOverview = {
+  snapshot: {
+    liveListings: 0,
+    activeHosts: 0,
+    activeBookings: 0,
+    revenueToday: 0,
+    revenueMonth: 0,
+    avgRating: 0,
+  },
+  attention: {
+    pendingListings: 0,
+    pendingHostApplications: 0,
+    pendingKyc: null,
+    needsChangesListings: 0,
+    failedPayouts: 0,
+    urgentAlerts: 0,
+  },
+  healthScore: { score: 100, label: "Healthy" },
+  funnel: {
+    period: "mtd_utc",
+    stages: [],
+    conversions: {
+      applicationsToApproved: null,
+      approvedToDraft: null,
+      draftToSubmitted: null,
+      submittedToLive: null,
+      liveToFirstBooking: null,
+    },
+  },
+  opsTiming: {
+    avgHoursToHostApproval: null,
+    avgDaysDraftToSubmit: null,
+  },
+  series: [],
+  activityGrouped: [],
+};
+
+export async function fetchOpsOverview(): Promise<OpsOverview> {
+  const data = await apiFetch<OpsOverview>("/admin/stays/ops-overview");
+  let pendingKyc = data.attention.pendingKyc;
+  try {
+    const { fetchKycApplications } = await import("./identity-admin");
+    const pending = await fetchKycApplications("pending");
+    pendingKyc = pending.length;
+  } catch {
+    // Identity unavailable — leave null/0
+    if (pendingKyc == null) pendingKyc = 0;
+  }
+  return {
+    ...data,
+    attention: {
+      ...data.attention,
+      pendingKyc: pendingKyc ?? 0,
+    },
+  };
+}
+
 export async function fetchStats(): Promise<DashboardStats> {
   const s = await apiFetch<{
     totalListings: number;
@@ -477,12 +594,16 @@ export async function fetchStats(): Promise<DashboardStats> {
     s.total_commission_percent ??
     ((s.guest_fee_percent ?? 5) + (s.host_fee_percent ?? 5));
 
+  const opsAttention =
+    s.pendingListings + s.pendingHostVerification + pendingKyc;
+
   return {
     ...s,
     pendingListingsBadge: s.pendingListings,
     openRisks: 0,
     pendingKyc,
     openTickets: 0,
+    opsAttention,
     totalUsers: s.totalHosts,
     activeListings: s.liveListings,
     monthlyBookings: s.totalBookings,
@@ -499,9 +620,39 @@ export async function fetchStats(): Promise<DashboardStats> {
   };
 }
 
-export async function fetchListings(status?: string) {
-  const q = status && status !== "all" ? `?status=${encodeURIComponent(status)}&limit=200` : "?limit=200";
-  const data = await apiFetch<Paginated<ApiListing>>(`/admin/stays/listings${q}`);
+/** Map UI queue filters to Stays listing status query values. */
+export function listingStatusQuery(ui?: string): string | undefined {
+  if (!ui || ui === "all") return undefined;
+  switch (ui) {
+    case "pending":
+      return "SUBMITTED";
+    case "approved":
+      return "APPROVED";
+    case "active":
+    case "live":
+      return "LIVE";
+    case "suspended":
+    case "paused":
+      return "PAUSED";
+    case "rejected":
+      return "REJECTED";
+    default:
+      return ui.toUpperCase();
+  }
+}
+
+export async function fetchListings(
+  status?: string,
+  sort?: "oldest" | "newest" | "priority",
+) {
+  const params = new URLSearchParams({ limit: "200" });
+  const apiStatus = listingStatusQuery(status);
+  if (apiStatus) params.set("status", apiStatus);
+  if (sort) params.set("sort", sort);
+  else if (apiStatus === "SUBMITTED") params.set("sort", "oldest");
+  const data = await apiFetch<Paginated<ApiListing>>(
+    `/admin/stays/listings?${params.toString()}`,
+  );
   return data.items.map(mapListing);
 }
 
@@ -634,6 +785,14 @@ export async function rejectHost(id: string, reason: string) {
     method: "POST",
     body: JSON.stringify({ reason }),
   });
+}
+
+export async function freezeHost(id: string) {
+  return apiFetch(`/admin/stays/hosts/${id}/freeze`, { method: "POST" });
+}
+
+export async function unfreezeHost(id: string) {
+  return apiFetch(`/admin/stays/hosts/${id}/unfreeze`, { method: "POST" });
 }
 
 export async function approveHostApplication(id: string) {

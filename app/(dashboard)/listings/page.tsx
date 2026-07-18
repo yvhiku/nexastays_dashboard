@@ -1,13 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Check,
   X,
   Ban,
   Flag,
   MapPin,
-  Star,
   Eye,
   ImageIcon,
 } from "lucide-react";
@@ -28,14 +28,80 @@ import { useAsyncList } from "@/lib/hooks/use-async-data";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import type { Listing, ListingStatus } from "@/lib/types";
 
-type Filter = "all" | ListingStatus;
+type Filter = "all" | ListingStatus | "live";
+type SortMode = "oldest" | "newest" | "priority";
+
+function normalizeFilter(raw: string | null): Filter {
+  if (!raw) return "pending";
+  if (raw === "live") return "active";
+  if (raw === "paused") return "suspended";
+  if (
+    raw === "all" ||
+    raw === "pending" ||
+    raw === "approved" ||
+    raw === "active" ||
+    raw === "rejected" ||
+    raw === "suspended" ||
+    raw === "flagged"
+  ) {
+    return raw;
+  }
+  return "pending";
+}
 
 export default function ListingsPage() {
-  const [filter, setFilter] = useState<Filter>("all");
+  return (
+    <Suspense
+      fallback={
+        <p className="py-10 text-center text-sm text-nexa-ink-4">Loading queue…</p>
+      }
+    >
+      <ListingsPageInner />
+    </Suspense>
+  );
+}
+
+function ListingsPageInner() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const [filter, setFilter] = useState<Filter>(() =>
+    normalizeFilter(searchParams.get("status")),
+  );
+  const [sort, setSort] = useState<SortMode>(() => {
+    const s = searchParams.get("sort");
+    return s === "newest" || s === "priority" ? s : "oldest";
+  });
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Listing | null>(null);
   const [acting, setActing] = useState<string | null>(null);
-  const { data: listings, loading, error, reload } = useAsyncList(fetchListings, []);
+  const { data: listings, loading, error, reload } = useAsyncList(
+    () => fetchListings(undefined, sort === "priority" ? "oldest" : sort),
+    [sort],
+  );
+
+  useEffect(() => {
+    const next = normalizeFilter(searchParams.get("status"));
+    setFilter(next);
+    const s = searchParams.get("sort");
+    if (s === "newest" || s === "oldest" || s === "priority") setSort(s);
+  }, [searchParams]);
+
+  function updateFilter(next: Filter) {
+    setFilter(next);
+    const params = new URLSearchParams(searchParams.toString());
+    const statusParam =
+      next === "active" ? "live" : next === "suspended" ? "paused" : next;
+    if (next === "all") params.delete("status");
+    else params.set("status", statusParam);
+    router.replace(`/listings?${params.toString()}`);
+  }
+
+  function updateSort(next: SortMode) {
+    setSort(next);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("sort", next);
+    router.replace(`/listings?${params.toString()}`);
+  }
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: listings.length };
@@ -43,14 +109,29 @@ export default function ListingsPage() {
     return c;
   }, [listings]);
 
-  const filtered = listings.filter((l) => {
-    const matchFilter = filter === "all" || l.status === filter;
-    const matchQuery =
-      l.title.toLowerCase().includes(query.toLowerCase()) ||
-      l.city.toLowerCase().includes(query.toLowerCase()) ||
-      l.hostName.toLowerCase().includes(query.toLowerCase());
-    return matchFilter && matchQuery;
-  });
+  const filtered = useMemo(() => {
+    let rows = listings.filter((l) => {
+      const matchFilter = filter === "all" || l.status === filter;
+      const matchQuery =
+        l.title.toLowerCase().includes(query.toLowerCase()) ||
+        l.city.toLowerCase().includes(query.toLowerCase()) ||
+        l.hostName.toLowerCase().includes(query.toLowerCase());
+      return matchFilter && matchQuery;
+    });
+    // Client-side wait-time sort for the pending queue
+    if (filter === "pending" || sort === "oldest") {
+      rows = [...rows].sort(
+        (a, b) =>
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      );
+    } else if (sort === "newest") {
+      rows = [...rows].sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      );
+    }
+    return rows;
+  }, [listings, filter, query, sort]);
 
   async function runAction(
     id: string,
@@ -60,7 +141,8 @@ export default function ListingsPage() {
     setActing(id);
     try {
       if (action === "approve") await approveListing(id);
-      else if (action === "reject") await rejectListing(id, reason?.trim() || "Rejected by admin");
+      else if (action === "reject")
+        await rejectListing(id, reason?.trim() || "Rejected by admin");
       else await setListingLive(id);
       await reload();
       setSelected(null);
@@ -72,8 +154,8 @@ export default function ListingsPage() {
   return (
     <div>
       <PageHeader
-        title="Listings Management"
-        description="Approve, moderate and control every property from the Stays database."
+        title="Listing Review Queue"
+        description="Treat each listing as a task — oldest waiting first by default."
         actions={
           <Button size="sm" variant="outline" onClick={() => reload()} disabled={loading}>
             Refresh
@@ -88,23 +170,36 @@ export default function ListingsPage() {
       <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <FilterTabs<Filter>
           value={filter}
-          onChange={setFilter}
+          onChange={updateFilter}
           options={[
-            { value: "all", label: "All", count: counts.all },
-            { value: "active", label: "Live", count: counts.active ?? 0 },
-            { value: "approved", label: "Approved", count: counts.approved ?? 0 },
             { value: "pending", label: "Pending", count: counts.pending ?? 0 },
-            { value: "flagged", label: "Flagged", count: counts.flagged ?? 0 },
-            { value: "suspended", label: "Suspended", count: counts.suspended ?? 0 },
-            { value: "rejected", label: "Rejected", count: counts.rejected ?? 0 },
+            { value: "approved", label: "Approved", count: counts.approved ?? 0 },
+            { value: "rejected", label: "Needs Changes", count: counts.rejected ?? 0 },
+            { value: "active", label: "Live", count: counts.active ?? 0 },
+            { value: "suspended", label: "Paused", count: counts.suspended ?? 0 },
+            { value: "all", label: "All", count: counts.all },
           ]}
         />
-        <SearchInput
-          value={query}
-          onChange={setQuery}
-          placeholder="Search title, city, host…"
-          className="lg:w-72"
-        />
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={sort}
+            onChange={(e) => updateSort(e.target.value as SortMode)}
+            className="rounded-md border border-nexa-line bg-white px-3 py-2 text-sm text-nexa-ink"
+            title="Sort order — priority ranking reserved for later"
+          >
+            <option value="oldest">Oldest waiting</option>
+            <option value="newest">Newest</option>
+            <option value="priority" disabled>
+              Priority (soon)
+            </option>
+          </select>
+          <SearchInput
+            value={query}
+            onChange={setQuery}
+            placeholder="Search title, city, host…"
+            className="lg:w-72"
+          />
+        </div>
       </div>
 
       <Card>
@@ -118,7 +213,7 @@ export default function ListingsPage() {
                 <TH>Host</TH>
                 <TH>Location</TH>
                 <TH>Price / night</TH>
-                <TH>Rating</TH>
+                <TH>Waiting since</TH>
                 <TH>Status</TH>
                 <TH className="text-right">Actions</TH>
               </tr>
@@ -151,13 +246,7 @@ export default function ListingsPage() {
                     </span>
                   </TD>
                   <TD className="font-medium">{formatCurrency(l.pricePerNight)}</TD>
-                  <TD>
-                    <span className="inline-flex items-center gap-1">
-                      <Star className="h-3.5 w-3.5 fill-nexa-accent text-nexa-accent" />
-                      {l.rating.toFixed(1)}
-                      <span className="text-nexa-ink-4">({l.reviewsCount})</span>
-                    </span>
-                  </TD>
+                  <TD className="text-nexa-ink-3">{formatDate(l.createdAt)}</TD>
                   <TD>
                     <StatusBadge status={l.status} />
                   </TD>

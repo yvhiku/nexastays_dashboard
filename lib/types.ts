@@ -24,7 +24,12 @@ export interface AppUser {
   bookingsCount?: number;
 }
 
-export type HostApplicationFilterStatus = "pending" | "approved" | "rejected";
+export type HostApplicationFilterStatus =
+  | "pending"
+  | "approved"
+  | "needs_changes"
+  | "rejected"
+  | "frozen";
 
 export interface HostApplication {
   id: string;
@@ -47,6 +52,7 @@ export interface HostApplication {
   submittedAt: string;
   reviewedAt?: string;
   rejectionReason?: string;
+  listingFrozen?: boolean;
   status: UserStatus;
   avatarColor: string;
 }

@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { FileText } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
@@ -14,10 +15,32 @@ import type { KycStatus } from "@/lib/types";
 
 type Filter = "all" | KycStatus;
 
+function normalizeKycFilter(raw: string | null): Filter {
+  if (raw === "pending" || raw === "verified" || raw === "rejected" || raw === "all") {
+    return raw;
+  }
+  return "pending";
+}
+
 export default function KycPage() {
-  const [filter, setFilter] = useState<Filter>("all");
+  return (
+    <Suspense fallback={<p className="py-10 text-center text-sm text-nexa-ink-4">Loading…</p>}>
+      <KycPageInner />
+    </Suspense>
+  );
+}
+
+function KycPageInner() {
+  const searchParams = useSearchParams();
+  const [filter, setFilter] = useState<Filter>(() =>
+    normalizeKycFilter(searchParams.get("status")),
+  );
   const [query, setQuery] = useState("");
   const { data: kycRecords, loading, error } = useAsyncList(fetchKycRecords, []);
+
+  useEffect(() => {
+    setFilter(normalizeKycFilter(searchParams.get("status")));
+  }, [searchParams]);
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: kycRecords.length };
@@ -37,8 +60,8 @@ export default function KycPage() {
   return (
     <div>
       <PageHeader
-        title="KYC / Verification"
-        description="Identity verification queue from the Identity service (source=STAYS)."
+        title="KYC"
+        description="Identity verification queue (source=STAYS)."
       />
 
       {error && (
@@ -50,10 +73,10 @@ export default function KycPage() {
           value={filter}
           onChange={setFilter}
           options={[
-            { value: "all", label: "All", count: counts.all },
             { value: "pending", label: "Pending", count: counts.pending ?? 0 },
             { value: "verified", label: "Verified", count: counts.verified ?? 0 },
             { value: "rejected", label: "Rejected", count: counts.rejected ?? 0 },
+            { value: "all", label: "All", count: counts.all },
           ]}
         />
         <SearchInput
