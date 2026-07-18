@@ -71,7 +71,7 @@ function ListingsPageInner() {
     const s = searchParams.get("sort");
     return s === "newest" || s === "priority" ? s : "oldest";
   });
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
   const [selected, setSelected] = useState<Listing | null>(null);
   const [acting, setActing] = useState<string | null>(null);
   const { data: listings, loading, error, reload } = useAsyncList(
@@ -84,6 +84,7 @@ function ListingsPageInner() {
     setFilter(next);
     const s = searchParams.get("sort");
     if (s === "newest" || s === "oldest" || s === "priority") setSort(s);
+    setQuery(searchParams.get("q") ?? "");
   }, [searchParams]);
 
   function updateFilter(next: Filter) {
