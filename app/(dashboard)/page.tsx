@@ -24,12 +24,14 @@ import { useAsyncStats } from "@/lib/hooks/use-async-data";
 import { formatCurrency, formatNumber } from "@/lib/utils";
 
 const CHART_FALLBACK = <div className="h-[200px]" />;
+const OVERVIEW_REFRESH_MS = 60_000;
 
 export default function OverviewPage() {
   const { data: overview, loading, error } = useAsyncStats(
     fetchOpsOverview,
     EMPTY_OPS_OVERVIEW,
     [],
+    OVERVIEW_REFRESH_MS,
   );
 
   if (error) {
@@ -62,6 +64,10 @@ export default function OverviewPage() {
   return (
     <div className="space-y-8">
       <OpsHero overview={overview} attentionTotal={attentionTotal} />
+
+      <NeedsAttention overview={overview} />
+
+      <HostMarketplaceFunnel overview={overview} />
 
       <section>
         <h2 className="font-display text-lg font-semibold text-nexa-ink">
@@ -104,15 +110,13 @@ export default function OverviewPage() {
         </div>
       </section>
 
-      <NeedsAttention overview={overview} />
-
-      <HostMarketplaceFunnel overview={overview} />
-
       <section>
         <h2 className="font-display text-lg font-semibold text-nexa-ink">
-          Revenue & Activity
+          Business Trends
         </h2>
-        <p className="mt-1 text-sm text-nexa-ink-3">Last 30 days (UTC).</p>
+        <p className="mt-1 text-sm text-nexa-ink-3">
+          Last 30 days (UTC) — historical movement, not operational work.
+        </p>
         <div className="mt-4 grid gap-4 lg:grid-cols-2">
           <Card>
             <CardHeader>

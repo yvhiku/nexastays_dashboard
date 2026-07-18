@@ -471,6 +471,10 @@ export type OpsOverview = {
     needsChangesListings: number;
     failedPayouts: number;
     urgentAlerts: number;
+    oldestPendingListingAt: string | null;
+    oldestPendingListingHours: number | null;
+    oldestPendingHostApplicationAt: string | null;
+    oldestPendingHostApplicationHours: number | null;
   };
   healthScore: {
     score: number;
@@ -519,6 +523,10 @@ export const EMPTY_OPS_OVERVIEW: OpsOverview = {
     needsChangesListings: 0,
     failedPayouts: 0,
     urgentAlerts: 0,
+    oldestPendingListingAt: null,
+    oldestPendingListingHours: null,
+    oldestPendingHostApplicationAt: null,
+    oldestPendingHostApplicationHours: null,
   },
   healthScore: { score: 100, label: "Healthy" },
   funnel: {

@@ -63,6 +63,19 @@ export function timeAgo(input: string | Date): string {
   return `${months}mo ago`;
 }
 
+/** Compact wait duration from a timestamp (e.g. 47m, 18h, 2d). */
+export function formatWaitAge(input: string | Date | null | undefined): string | null {
+  if (!input) return null;
+  const d = typeof input === "string" ? new Date(input) : input;
+  if (Number.isNaN(d.getTime())) return null;
+  const minutes = Math.max(0, Math.floor((Date.now() - d.getTime()) / 60_000));
+  if (minutes < 60) return `${Math.max(1, minutes)}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `${days}d`;
+}
+
 export function initials(name: string): string {
   return name
     .split(" ")

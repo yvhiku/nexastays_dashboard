@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import type { OpsOverview } from "@/lib/api/stays-admin";
-import { cn } from "@/lib/utils";
+import { cn, formatWaitAge } from "@/lib/utils";
 
 type AttentionItem = {
   label: string;
   count: number;
   href: string;
+  oldestAt?: string | null;
 };
 
 export function NeedsAttention({ overview }: { overview: OpsOverview }) {
@@ -17,11 +18,13 @@ export function NeedsAttention({ overview }: { overview: OpsOverview }) {
       label: "Listings awaiting review",
       count: a.pendingListings,
       href: "/listings?status=pending",
+      oldestAt: a.oldestPendingListingAt,
     },
     {
       label: "Host applications",
       count: a.pendingHostApplications,
       href: "/hosts?status=pending",
+      oldestAt: a.oldestPendingHostApplicationAt,
     },
     {
       label: "KYC reviews",
@@ -69,21 +72,31 @@ export function NeedsAttention({ overview }: { overview: OpsOverview }) {
         <p className="mt-6 text-sm text-nexa-ink-4">All clear — no open queues.</p>
       ) : (
         <ul className="mt-4 divide-y divide-nexa-line">
-          {actionable.map((item) => (
-            <li key={item.href + item.label}>
-              <Link
-                href={item.href}
-                className={cn(
-                  "flex items-center justify-between gap-3 py-3.5 text-sm transition-colors hover:text-nexa-primary",
-                )}
-              >
-                <span className="font-medium text-nexa-ink">{item.label}</span>
-                <span className="rounded-md bg-nexa-primary-soft px-2.5 py-1 text-sm font-semibold text-nexa-primary-dark">
-                  {item.count}
-                </span>
-              </Link>
-            </li>
-          ))}
+          {actionable.map((item) => {
+            const oldest = formatWaitAge(item.oldestAt);
+            return (
+              <li key={item.href + item.label}>
+                <Link
+                  href={item.href}
+                  className={cn(
+                    "flex items-center justify-between gap-3 py-3.5 text-sm transition-colors hover:text-nexa-primary",
+                  )}
+                >
+                  <span className="min-w-0">
+                    <span className="font-medium text-nexa-ink">{item.label}</span>
+                    {oldest && (
+                      <span className="mt-0.5 block text-xs text-nexa-ink-4">
+                        Oldest: {oldest}
+                      </span>
+                    )}
+                  </span>
+                  <span className="rounded-md bg-nexa-primary-soft px-2.5 py-1 text-sm font-semibold text-nexa-primary-dark">
+                    {item.count}
+                  </span>
+                </Link>
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>

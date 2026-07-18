@@ -61,7 +61,19 @@ export function useAsyncStats<T extends object>(
   loader: () => Promise<T>,
   fallback: T,
   deps: unknown[] = [],
+  refreshIntervalMs?: number,
 ) {
   const { data, error, loading, reload } = useAsyncData(loader, deps, fallback);
+
+  useEffect(() => {
+    if (!refreshIntervalMs || refreshIntervalMs <= 0) return;
+    const id = setInterval(() => {
+      void reload();
+    }, refreshIntervalMs);
+    return () => clearInterval(id);
+    // reload identity changes each render; interval only needs refreshIntervalMs
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshIntervalMs, ...deps]);
+
   return { data: data ?? fallback, error, loading, reload };
 }
