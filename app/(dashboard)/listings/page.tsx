@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect, Suspense } from "react";
+import { useCallback, useEffect, useMemo, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Check,
@@ -10,6 +10,8 @@ import {
   MapPin,
   Eye,
   ImageIcon,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
@@ -19,17 +21,22 @@ import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { SearchInput, FilterTabs } from "@/components/ui/toolbar";
 import {
   approveListing,
-  fetchListings,
+  fetchListingCounts,
+  fetchListingsPage,
   rejectListing,
   setListingLive,
+  EMPTY_LISTING_COUNTS,
+  type ListingCounts,
+  type ListingsPageResult,
 } from "@/lib/api/stays-admin";
 import { ListingReviewDrawer } from "@/components/listings/ListingReviewDrawer";
-import { useAsyncList } from "@/lib/hooks/use-async-data";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate, formatNumber } from "@/lib/utils";
 import type { Listing, ListingStatus } from "@/lib/types";
 
 type Filter = "all" | ListingStatus | "live";
 type SortMode = "oldest" | "newest" | "priority";
+
+const PAGE_SIZE = 50;
 
 function normalizeFilter(raw: string | null): Filter {
   if (!raw) return "pending";
@@ -47,6 +54,39 @@ function normalizeFilter(raw: string | null): Filter {
     return raw;
   }
   return "pending";
+}
+
+function filterToApiStatus(filter: Filter): string | undefined {
+  if (filter === "all") return undefined;
+  if (filter === "active" || filter === "live") return "active";
+  if (filter === "suspended") return "suspended";
+  return filter;
+}
+
+function filterToUrlStatus(filter: Filter): string | null {
+  if (filter === "all") return null;
+  if (filter === "active") return "live";
+  if (filter === "suspended") return "paused";
+  return filter;
+}
+
+function countForFilter(counts: ListingCounts, filter: Filter): number {
+  switch (filter) {
+    case "all":
+      return counts.all;
+    case "pending":
+      return counts.pending;
+    case "approved":
+      return counts.approved;
+    case "rejected":
+      return counts.rejected;
+    case "active":
+      return counts.live;
+    case "suspended":
+      return counts.paused;
+    default:
+      return 0;
+  }
 }
 
 export default function ListingsPage() {
@@ -71,68 +111,100 @@ function ListingsPageInner() {
     const s = searchParams.get("sort");
     return s === "newest" || s === "priority" ? s : "oldest";
   });
+  const [page, setPage] = useState(() => {
+    const p = parseInt(searchParams.get("page") || "1", 10);
+    return Number.isFinite(p) && p > 0 ? p : 1;
+  });
   const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
   const [selected, setSelected] = useState<Listing | null>(null);
   const [acting, setActing] = useState<string | null>(null);
-  const { data: listings, loading, error, reload } = useAsyncList(
-    () => fetchListings(undefined, sort === "priority" ? "oldest" : sort),
-    [sort],
-  );
+  const [counts, setCounts] = useState<ListingCounts>(EMPTY_LISTING_COUNTS);
+  const [pageData, setPageData] = useState<ListingsPageResult | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const next = normalizeFilter(searchParams.get("status"));
-    setFilter(next);
+    setFilter(normalizeFilter(searchParams.get("status")));
     const s = searchParams.get("sort");
     if (s === "newest" || s === "oldest" || s === "priority") setSort(s);
+    const p = parseInt(searchParams.get("page") || "1", 10);
+    setPage(Number.isFinite(p) && p > 0 ? p : 1);
     setQuery(searchParams.get("q") ?? "");
   }, [searchParams]);
 
+  const replaceParams = useCallback(
+    (patch: Record<string, string | null>) => {
+      const params = new URLSearchParams(searchParams.toString());
+      for (const [key, value] of Object.entries(patch)) {
+        if (value == null || value === "") params.delete(key);
+        else params.set(key, value);
+      }
+      router.replace(`/listings?${params.toString()}`);
+    },
+    [router, searchParams],
+  );
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const offset = (page - 1) * PAGE_SIZE;
+      const [nextCounts, nextPage] = await Promise.all([
+        fetchListingCounts(),
+        fetchListingsPage({
+          status: filterToApiStatus(filter),
+          sort: sort === "priority" ? "oldest" : sort,
+          limit: PAGE_SIZE,
+          offset,
+        }),
+      ]);
+      setCounts(nextCounts);
+      setPageData(nextPage);
+      // If page is past the end after a delete/approve, clamp
+      if (nextPage.total > 0 && offset >= nextPage.total) {
+        const lastPage = Math.max(1, Math.ceil(nextPage.total / PAGE_SIZE));
+        replaceParams({ page: String(lastPage) });
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load listings");
+    } finally {
+      setLoading(false);
+    }
+  }, [filter, page, sort, replaceParams]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
   function updateFilter(next: Filter) {
     setFilter(next);
-    const params = new URLSearchParams(searchParams.toString());
-    const statusParam =
-      next === "active" ? "live" : next === "suspended" ? "paused" : next;
-    if (next === "all") params.delete("status");
-    else params.set("status", statusParam);
-    router.replace(`/listings?${params.toString()}`);
+    replaceParams({
+      status: filterToUrlStatus(next),
+      page: "1",
+    });
   }
 
   function updateSort(next: SortMode) {
     setSort(next);
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("sort", next);
-    router.replace(`/listings?${params.toString()}`);
+    replaceParams({ sort: next, page: "1" });
   }
 
-  const counts = useMemo(() => {
-    const c: Record<string, number> = { all: listings.length };
-    for (const l of listings) c[l.status] = (c[l.status] ?? 0) + 1;
-    return c;
-  }, [listings]);
+  function goPage(next: number) {
+    setPage(next);
+    replaceParams({ page: String(next) });
+  }
 
+  const listings = pageData?.items ?? [];
   const filtered = useMemo(() => {
-    let rows = listings.filter((l) => {
-      const matchFilter = filter === "all" || l.status === filter;
-      const matchQuery =
-        l.title.toLowerCase().includes(query.toLowerCase()) ||
-        l.city.toLowerCase().includes(query.toLowerCase()) ||
-        l.hostName.toLowerCase().includes(query.toLowerCase());
-      return matchFilter && matchQuery;
-    });
-    // Client-side wait-time sort for the pending queue
-    if (filter === "pending" || sort === "oldest") {
-      rows = [...rows].sort(
-        (a, b) =>
-          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-      );
-    } else if (sort === "newest") {
-      rows = [...rows].sort(
-        (a, b) =>
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-      );
-    }
-    return rows;
-  }, [listings, filter, query, sort]);
+    const q = query.toLowerCase().trim();
+    if (!q) return listings;
+    return listings.filter(
+      (l) =>
+        l.title.toLowerCase().includes(q) ||
+        l.city.toLowerCase().includes(q) ||
+        l.hostName.toLowerCase().includes(q),
+    );
+  }, [listings, query]);
 
   async function runAction(
     id: string,
@@ -145,12 +217,18 @@ function ListingsPageInner() {
       else if (action === "reject")
         await rejectListing(id, reason?.trim() || "Rejected by admin");
       else await setListingLive(id);
-      await reload();
       setSelected(null);
+      await load();
     } finally {
       setActing(null);
     }
   }
+
+  const total = pageData?.total ?? 0;
+  const limit = pageData?.limit ?? PAGE_SIZE;
+  const offset = pageData?.offset ?? (page - 1) * PAGE_SIZE;
+  const from = total === 0 ? 0 : offset + 1;
+  const to = Math.min(offset + (pageData?.items.length ?? 0), total);
 
   return (
     <div>
@@ -158,7 +236,7 @@ function ListingsPageInner() {
         title="Listing Review Queue"
         description="Treat each listing as a task — oldest waiting first by default."
         actions={
-          <Button size="sm" variant="outline" onClick={() => reload()} disabled={loading}>
+          <Button size="sm" variant="outline" onClick={() => load()} disabled={loading}>
             Refresh
           </Button>
         }
@@ -173,11 +251,11 @@ function ListingsPageInner() {
           value={filter}
           onChange={updateFilter}
           options={[
-            { value: "pending", label: "Pending", count: counts.pending ?? 0 },
-            { value: "approved", label: "Approved", count: counts.approved ?? 0 },
-            { value: "rejected", label: "Needs Changes", count: counts.rejected ?? 0 },
-            { value: "active", label: "Live", count: counts.active ?? 0 },
-            { value: "suspended", label: "Paused", count: counts.suspended ?? 0 },
+            { value: "pending", label: "Pending", count: counts.pending },
+            { value: "approved", label: "Approved", count: counts.approved },
+            { value: "rejected", label: "Needs Changes", count: counts.rejected },
+            { value: "active", label: "Live", count: counts.live },
+            { value: "suspended", label: "Paused", count: counts.paused },
             { value: "all", label: "All", count: counts.all },
           ]}
         />
@@ -197,7 +275,7 @@ function ListingsPageInner() {
           <SearchInput
             value={query}
             onChange={setQuery}
-            placeholder="Search title, city, host…"
+            placeholder="Search current page…"
             className="lg:w-72"
           />
         </div>
@@ -315,6 +393,43 @@ function ListingsPageInner() {
           <p className="py-10 text-center text-sm text-nexa-ink-4">
             No listings match your filters.
           </p>
+        )}
+
+        {!loading && total > 0 && (
+          <div className="flex flex-col gap-3 border-t border-nexa-line px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-nexa-ink-3">
+              Showing {formatNumber(from)}–{formatNumber(to)} of{" "}
+              {formatNumber(total)} listings
+              {query.trim()
+                ? ` · ${filtered.length} match on this page`
+                : ""}
+              {filter !== "all"
+                ? ` · ${formatNumber(countForFilter(counts, filter))} in this status`
+                : ""}
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!pageData?.hasPrevious || loading}
+                onClick={() => goPage(page - 1)}
+              >
+                <ChevronLeft className="h-4 w-4" /> Previous
+              </Button>
+              <span className="text-xs text-nexa-ink-4">
+                Page {page}
+                {limit > 0 ? ` of ${Math.max(1, Math.ceil(total / limit))}` : ""}
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!pageData?.hasNext || loading}
+                onClick={() => goPage(page + 1)}
+              >
+                Next <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
         )}
       </Card>
 

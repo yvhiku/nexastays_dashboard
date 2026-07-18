@@ -649,19 +649,81 @@ export function listingStatusQuery(ui?: string): string | undefined {
   }
 }
 
+export type ListingCounts = {
+  all: number;
+  pending: number;
+  approved: number;
+  rejected: number;
+  live: number;
+  paused: number;
+};
+
+export const EMPTY_LISTING_COUNTS: ListingCounts = {
+  all: 0,
+  pending: 0,
+  approved: 0,
+  rejected: 0,
+  live: 0,
+  paused: 0,
+};
+
+export type ListingsPageResult = {
+  items: Listing[];
+  total: number;
+  limit: number;
+  offset: number;
+  hasNext: boolean;
+  hasPrevious: boolean;
+};
+
+export async function fetchListingCounts(): Promise<ListingCounts> {
+  return apiFetch<ListingCounts>("/admin/stays/listing-counts");
+}
+
+export async function fetchListingsPage(options?: {
+  status?: string;
+  sort?: "oldest" | "newest" | "priority";
+  limit?: number;
+  offset?: number;
+}): Promise<ListingsPageResult> {
+  const limit = options?.limit ?? 50;
+  const offset = options?.offset ?? 0;
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  });
+  const apiStatus = listingStatusQuery(options?.status);
+  if (apiStatus) params.set("status", apiStatus);
+  const sort = options?.sort;
+  if (sort) params.set("sort", sort);
+  else if (apiStatus === "SUBMITTED") params.set("sort", "oldest");
+
+  const data = await apiFetch<{
+    items: ApiListing[];
+    total: number;
+    limit: number;
+    offset: number;
+    hasNext: boolean;
+    hasPrevious: boolean;
+  }>(`/admin/stays/listings?${params.toString()}`);
+
+  return {
+    items: data.items.map(mapListing),
+    total: data.total,
+    limit: data.limit ?? limit,
+    offset: data.offset ?? offset,
+    hasNext: Boolean(data.hasNext),
+    hasPrevious: Boolean(data.hasPrevious),
+  };
+}
+
+/** @deprecated Prefer fetchListingsPage — kept for callers that only need items. */
 export async function fetchListings(
   status?: string,
   sort?: "oldest" | "newest" | "priority",
 ) {
-  const params = new URLSearchParams({ limit: "200" });
-  const apiStatus = listingStatusQuery(status);
-  if (apiStatus) params.set("status", apiStatus);
-  if (sort) params.set("sort", sort);
-  else if (apiStatus === "SUBMITTED") params.set("sort", "oldest");
-  const data = await apiFetch<Paginated<ApiListing>>(
-    `/admin/stays/listings?${params.toString()}`,
-  );
-  return data.items.map(mapListing);
+  const page = await fetchListingsPage({ status, sort, limit: 50, offset: 0 });
+  return page.items;
 }
 
 export async function fetchBookings(status?: string) {
