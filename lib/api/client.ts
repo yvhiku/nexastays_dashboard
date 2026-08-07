@@ -1,18 +1,17 @@
 import { apiConfig } from "./config";
 
-const TOKEN_KEY = "nexa_admin_access_token";
+let accessToken: string | null = null;
 
 export function getAccessToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem(TOKEN_KEY);
+  return accessToken;
 }
 
 export function setAccessToken(token: string) {
-  localStorage.setItem(TOKEN_KEY, token);
+  accessToken = token;
 }
 
 export function clearAccessToken() {
-  localStorage.removeItem(TOKEN_KEY);
+  accessToken = null;
 }
 
 export class ApiError extends Error {
@@ -38,6 +37,7 @@ export async function apiFetch<T>(
   const token = getAccessToken();
   const headers: Record<string, string> = {
     Accept: "application/json",
+    "X-Auth-Transport": "cookie",
     ...(options.headers as Record<string, string>),
   };
   if (options.body && !headers["Content-Type"]) {
@@ -49,6 +49,7 @@ export async function apiFetch<T>(
 
   const res = await fetch(`${base}${path}`, {
     ...options,
+    credentials: "include",
     headers,
   });
 

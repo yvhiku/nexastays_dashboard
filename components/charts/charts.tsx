@@ -9,7 +9,7 @@ export function AreaChart({
   data,
   height = 220,
   color = PRIMARY,
-  valueFormatter,
+  valueFormatter: _valueFormatter,
 }: {
   data: { label: string; value: number }[];
   height?: number;

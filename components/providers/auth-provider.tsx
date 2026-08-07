@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { adminLogin } from "@/lib/api/auth";
+import { adminLogin, adminLogout, hasAdminSession } from "@/lib/api/auth";
 import { clearAccessToken, getAccessToken } from "@/lib/api/client";
 
 type AuthContextValue = {
@@ -28,8 +28,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
 
   useEffect(() => {
-    setToken(getAccessToken());
-    setAuthReady(true);
+    const memoryToken = getAccessToken();
+    if (memoryToken) {
+      setToken(memoryToken);
+      setAuthReady(true);
+      return;
+    }
+    void hasAdminSession().then((authenticated) => {
+      setToken(authenticated ? "cookie-session" : null);
+      setAuthReady(true);
+    });
   }, []);
 
   useEffect(() => {
@@ -47,6 +55,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(() => {
+    void adminLogout().catch(() => {});
     clearAccessToken();
     setToken(null);
     router.replace("/login");

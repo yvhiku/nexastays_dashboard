@@ -15,3 +15,22 @@ export async function adminLogin(email: string, password: string) {
   setAccessToken(token);
   return token;
 }
+
+export async function hasAdminSession(): Promise<boolean> {
+  try {
+    const result = await apiFetch<{ authenticated?: boolean }>("/auth/session", {
+      base: "identity",
+    });
+    return result.authenticated === true;
+  } catch {
+    return false;
+  }
+}
+
+export async function adminLogout(): Promise<void> {
+  await apiFetch("/auth/logout", {
+    base: "identity",
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
