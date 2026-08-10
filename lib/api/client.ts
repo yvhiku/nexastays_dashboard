@@ -1,5 +1,6 @@
 import { apiConfig } from "./config";
 
+/** In-memory admin access JWT (ADR-005). Refresh uses HttpOnly cookie when transport=cookie. */
 let accessToken: string | null = null;
 
 export function getAccessToken(): string | null {
@@ -37,6 +38,7 @@ export async function apiFetch<T>(
   const token = getAccessToken();
   const headers: Record<string, string> = {
     Accept: "application/json",
+    // Refresh cookie only — access authorization is Bearer (PROD-SEC-001).
     "X-Auth-Transport": "cookie",
     ...(options.headers as Record<string, string>),
   };
