@@ -1,5 +1,6 @@
 import React from "react";
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { Playfair_Display, DM_Sans } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/components/providers/auth-provider";
@@ -26,18 +27,22 @@ const dmSans = DM_Sans({
   display: "swap",
 });
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // SEC-010: middleware sets x-nonce; Next uses it for inline bootstrap scripts when present.
+  const h = await headers();
+  const nonce = h.get("x-nonce") ?? undefined;
+
   return (
     <html
       lang="en"
       className={`${playfair.variable} ${dmSans.variable}`}
       suppressHydrationWarning
     >
-      <body suppressHydrationWarning>
+      <body suppressHydrationWarning data-nonce={nonce || undefined}>
         <AuthProvider>{children}</AuthProvider>
       </body>
     </html>
