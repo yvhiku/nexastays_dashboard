@@ -289,12 +289,20 @@ export function mapBooking(row: {
   created_at: string;
   listing?: { title?: string; city?: string; host_user_id?: string } | null;
 }): Booking {
-  const checkIn = new Date(row.checkin_date);
-  const checkOut = new Date(row.checkout_date);
-  const nights = Math.max(
-    1,
-    Math.round((checkOut.getTime() - checkIn.getTime()) / 86400000),
-  );
+  // Match stays bookingNightsBetween: UTC YMD, checkout exclusive.
+  const ci = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(row.checkin_date));
+  const co = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(row.checkout_date));
+  const nights =
+    ci && co
+      ? Math.max(
+          1,
+          Math.trunc(
+            (Date.UTC(Number(co[1]), Number(co[2]) - 1, Number(co[3])) -
+              Date.UTC(Number(ci[1]), Number(ci[2]) - 1, Number(ci[3]))) /
+              86_400_000,
+          ),
+        )
+      : 1;
   return {
     id: row.id,
     reference: row.id.slice(0, 8).toUpperCase(),
