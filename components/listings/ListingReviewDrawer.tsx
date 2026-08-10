@@ -289,10 +289,6 @@ export function ListingReviewDrawer({
                             : "—"
                         }
                       />
-                      <Detail
-                        label="Cleaning fee"
-                        value={formatCurrency(detail.cleaningFee, detail.currency)}
-                      />
                       <Detail label="Deposit policy" value={detail.depositPolicy} />
                     </dl>
                   </Section>

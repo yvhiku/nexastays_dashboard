@@ -100,7 +100,6 @@ export interface ListingDetail extends Listing {
   checkOutTime: string;
   instantBooking: boolean;
   weekendPrice: number | null;
-  cleaningFee: number;
   depositPolicy: string;
   currency: string;
   maxGuests: number;

@@ -90,7 +90,6 @@ type ApiListing = {
   rate_plan?: {
     base_price?: number | string | null;
     weekend_price?: number | string | null;
-    cleaning_fee?: number | string | null;
     deposit_policy_text?: string | null;
     currency?: string;
   } | null;
@@ -227,7 +226,6 @@ function mapListingDetail(row: ApiListingDetail): ListingDetail {
     checkOutTime: row.checkout_time ?? "11:00",
     instantBooking: row.instant_booking ?? false,
     weekendPrice: rate?.weekend_price != null ? Number(rate.weekend_price) : null,
-    cleaningFee: Number(rate?.cleaning_fee ?? 0),
     depositPolicy: rate?.deposit_policy_text?.trim() || "—",
     currency: rate?.currency ?? "MAD",
     maxGuests: row.rules?.max_guests ?? 0,

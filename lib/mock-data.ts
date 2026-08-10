@@ -294,7 +294,7 @@ export const tickets: Ticket[] = Array.from({ length: 24 }).map((_, i) => {
     "Guest damaged furniture",
     "Double booking conflict",
     "Host not responding to messages",
-    "Cleaning fee dispute",
+    "Deposit return delay",
     "Early check-in denied",
     "Security deposit not returned",
   ];
