@@ -6,11 +6,11 @@
 
 ## Executive summary
 
-**Ready with minor fixes**
+**Production ready** (after Phase 1.2 High-fix patch)
 
-Phase 1.1 closed the original Critical/High audit blockers for the happy path: customer SUPPORT sends lock the ticket before insert, reject `CLOSED` with 409, apply party-aware waiting / `RESOLVED → OPEN` (clearing `resolved_at` only on that transition) inside the same TX; report/safety provision shares one outer TX with savepoint-safe `23505` reuse; escalation ensures the ticket before persisting `ESCALATED` on the throw-failure path; dashboard disables the CLOSED composer and handles 409 with refresh.
+Phase 1.1 closed the original Critical/High audit blockers for the happy path. Phase 1.2 eliminated the residual High edge cases: `ensureTicketFor*` now returns a valid ticket or throws (never null); unrecovered `23505` throws after savepoint-safe rollback; escalation cannot commit `ESCALATED` without a ticket.
 
-Remaining gaps are edge cases that still violate two acceptance literals in uncommon paths (`ESCALATED` / provision with a null ticket when ensure cannot create or reuse), plus Medium concurrency/UX races (`unread_for_support` clear vs customer send; brief stale composer state). They do **not** restore the original Critical “RESOLVED stays RESOLVED” or “CLOSED still accepts customer messages” failures.
+Remaining items are Medium/Low operational limitations only (unread clear race, brief stale CLOSED composer UX, coverage gaps, Phase 2 out of scope).
 
 ## Critical
 
@@ -20,29 +20,25 @@ None confirmed in current code for the Phase 1.1 happy paths.
 
 ## High
 
-### H1. Escalation can still persist `ESCALATED` with no ticket when ensure yields null
+### H1 / H2 — Fixed in Phase 1.2
 
-- **Issue:** After ticket lookup/ensure, `applyTrustStatus` always sets canonical status to `ESCALATED` even when `ticket` remains `null` (missing source conversation, or `ensureTicketFor*` returning null).
-- **Severity:** High
-- **Affected flow:** Admin trust report/safety PATCH → `ESCALATED`
-- **Exact file(s):** [`backend/stays/src/modules/support/support-tickets.service.ts`](../../backend/stays/src/modules/support/support-tickets.service.ts) (`applyTrustStatus`, ~1156–1192)
-- **Root cause:** Comment claims failure cannot leave escalated without a ticket, but only *thrown* ensure failures roll back. A successful null return still continues to `status = 'ESCALATED'` and commit; audit may record `ticketId: null`.
-- **Reproduction:** Patch a `REVIEWED` report to `ESCALATED` where `conversation_id` has no matching conversation row (or force `ensureTicketForReport` to return `null` without throwing).
-- **Expected behavior:** Escalation cannot persist without a ticket (abort TX / reject).
-- **Actual behavior:** Status becomes `ESCALATED` with `ticketId: null` when ensure does not throw.
-- **Recommended fix:** If `!ticket` after ensure, throw (e.g. `ConflictException` / `BadRequestException`) inside the TX so status is not saved.
+See **Phase 1.2 High-Fix Verification** below. Historical descriptions retained for audit trail:
 
-### H2. Provision can commit canonical report/safety with `ticket: null` on unreused unique conflict
+<details>
+<summary>H1 (historical) — ESCALATED without ticket when ensure yielded null</summary>
 
-- **Issue:** `ensureTicketFor*` catches `23505`, then `findOne` for reuse; if reuse is null it returns `null` without throwing. Outer `provision*` then commits the canonical row.
-- **Severity:** High (edge race / data anomaly)
-- **Affected flow:** Report / safety → ticket provisioning
-- **Exact file(s):** [`support-tickets.service.ts`](../../backend/stays/src/modules/support/support-tickets.service.ts) (`ensureTicketForReport` / `ensureTicketForSafetyIssue` catch blocks ~290–296 / ~345–351; `provisionReportWithTicket` / `provisionSafetyIssueWithTicket`)
-- **Root cause:** Unique-violation “reuse” path treats missing reuse as soft success (`null`) instead of failing the outer TX.
-- **Reproduction:** Nested insert hits `23505`, savepoint rolls back insert, but subsequent find-by-`report_id` returns null (extreme race / wrong key). Provision returns `{ report, ticket: null }` and commits.
-- **Expected behavior:** Atomic success = canonical + ticket (or full rollback).
-- **Actual behavior:** Throw-after-canonical correctly rolls back (verified by unit mock). Soft-null ensure path can leave orphan canonical without ticket.
-- **Recommended fix:** If reuse after `23505` is null, rethrow; optionally assert `ticket` non-null before provision commit.
+- Escalation could set `ESCALATED` when ensure returned null or source conversation was missing.
+- **Fixed:** `ensureTicket*` is non-null; missing conversation throws; status only set after ticket is guaranteed.
+
+</details>
+
+<details>
+<summary>H2 (historical) — unrecovered 23505 → ticket null</summary>
+
+- Unique violation reuse could return null and allow provision to succeed without a ticket.
+- **Fixed:** reuse miss throws `InternalServerErrorException` after savepoint rollback; provision return type is non-null ticket.
+
+</details>
 
 ## Medium
 
@@ -271,19 +267,61 @@ npx jest src/modules/support src/modules/messaging/messages.service.spec.ts src/
 
 ## Remaining known limitations
 
-Only limitations that still exist after Phase 1.1:
+Only limitations that still exist after Phase 1.2:
 
-- H1 / H2 null-ticket edge paths on escalate / provision.
 - M1 unread clear race on admin list vs customer send.
 - M2 brief stale composer enable; mitigated by API 409.
 - M3 latent unused `isAdmin` messaging bypass.
 - Multiple reports/safety rows per conversation still allowed (one ticket each).
 - Admin queue freshness ~8s polling (by design).
-- Coverage gaps listed above.
+- Coverage gaps listed above (attachment/session CLOSED specs, SSE-after-commit assert, non-URGENT→HIGH escalate assert).
 - Phase 2 items remain out of scope (notes, SLA, CSAT, canned replies, assignment redesign, guest↔host transcript UI, reports pagination, mobile, Identity/Pay tickets, SSE redesign).
 
 ## Final verdict
 
-**Ready with minor fixes**
+**Production ready**
 
-Phase 1.1 made the Support & Trust system safe for the audited Critical paths and for normal production Report → ticket → reply → reopen → close flows. Do **not** start Phase 2 until H1/H2 are closed (or explicitly accepted as residual risk) if the org requires the literal acceptance criterion “ESCALATED / provision cannot persist without a ticket” in all edge cases.
+Phase 1.1 + Phase 1.2 made Support & Trust safe for Critical/High integrity paths. Remaining Medium/Low items are operational polish, not launch blockers for the locked architecture. Do not begin Phase 2 from this verification alone without a separate product plan.
+
+---
+
+## Phase 1.2 High-Fix Verification
+
+**Date:** 2026-08-13  
+**Scope:** Backend `ensureTicket*` contract + escalate/provision abort; docs update only on dashboard.
+
+### H1 — ESCALATED without ticket
+
+**PASS**
+
+- `ensureTicketForReport` / `ensureTicketForSafetyIssue` return `Promise<StaysSupportTicket>` (never null).
+- Missing source conversation on escalate throws `InternalServerErrorException('Failed to ensure support ticket.')` before status mutation.
+- Specs: missing conversation; unrecovered 23505 on escalate; prior `REVIEWED` preserved.
+
+### H2 — unrecovered 23505
+
+**PASS**
+
+- Nested path keeps `withUniqueConflictSavepoint`; reuse after rollback; missing reuse throws.
+- Standalone `createTicketForUser` throws `InternalServerErrorException` when reuse after 23505 is null.
+- Provision return type is `{ ticket: StaysSupportTicket }` (non-null); conversations use `ticket.id` directly.
+- Specs: report + safety provision throw on unrecovered 23505; successful reuse still returns non-null ticket.
+
+### Regression tests
+
+- **command:** `npx jest src/modules/support src/modules/messaging/messages.service.spec.ts src/modules/messaging/conversations.service.spec.ts --no-coverage` (from `backend/stays`)
+- **result:** all passed
+- **number passed:** 41
+
+### Final invariant
+
+Every `ensureTicket` operation now:
+
+1. Returns a valid ticket, or
+2. Throws and causes the enclosing transaction to roll back.
+
+It never returns null and allows provisioning or escalation to continue.
+
+### Remaining findings
+
+Only unresolved Medium/Low: M1 unread clear race, M2 stale CLOSED composer window, M3 latent `isAdmin` messaging path, coverage gaps, multi-report-per-conversation, 8s admin poll, Phase 2 out of scope.
