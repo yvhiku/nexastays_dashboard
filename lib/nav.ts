@@ -90,6 +90,11 @@ export const navEntries: NavEntry[] = [
           icon: LifeBuoy,
           badgeKey: "openTickets",
         },
+        {
+          label: "Support analytics",
+          href: "/support/analytics",
+          icon: BarChart3,
+        },
       ],
     },
   },

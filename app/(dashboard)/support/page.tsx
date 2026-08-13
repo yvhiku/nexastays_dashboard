@@ -13,6 +13,7 @@ import { useAuth } from "@/components/providers/auth-provider";
 import {
   createTicketNote,
   fetchBookingDetail,
+  fetchCannedReplies,
   fetchTicket,
   fetchTicketActivity,
   fetchTicketMessages,
@@ -27,6 +28,7 @@ import { ApiError } from "@/lib/api/client";
 import { formatDateTime, cn } from "@/lib/utils";
 import type {
   BookingDetail,
+  CannedReply,
   SupportActivityItem,
   Ticket,
   TicketDetail,
@@ -65,6 +67,12 @@ function statusQuery(filter: Filter): string | undefined {
 
 function formatActivityAction(action: string) {
   return action.replace(/_/g, " ");
+}
+
+function slaLabel(state: string | undefined) {
+  if (state === "AT_RISK") return "At risk";
+  if (state === "BREACHED") return "Breached";
+  return "On track";
 }
 
 export default function SupportPage() {
@@ -358,6 +366,7 @@ function SupportWorkspace({
   const [messages, setMessages] = useState<TicketMessage[]>([]);
   const [notes, setNotes] = useState<TicketNote[]>([]);
   const [activity, setActivity] = useState<SupportActivityItem[]>([]);
+  const [canned, setCanned] = useState<CannedReply[]>([]);
   const [noteDraft, setNoteDraft] = useState("");
   const [noteSaving, setNoteSaving] = useState(false);
   const [booking, setBooking] = useState<BookingDetail | null>(null);
@@ -390,6 +399,13 @@ function SupportWorkspace({
     if (ticket.id === "lookup") return;
 
     let cancelled = false;
+    void fetchCannedReplies()
+      .then((rows) => {
+        if (!cancelled) setCanned(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setCanned([]);
+      });
     const load = () => {
       void fetchTicketMessages(ticket.id)
         .then((next) => {
@@ -593,6 +609,36 @@ function SupportWorkspace({
               {" · "}
               Updated {live.updatedAt ? formatDateTime(live.updatedAt) : "—"}
             </p>
+            {live.firstAdminResponseAt && (
+              <p className="mt-1 text-xs text-nexa-ink-4">
+                First response {formatDateTime(live.firstAdminResponseAt)}
+              </p>
+            )}
+            {live.resolvedAt && (
+              <p className="mt-1 text-xs text-nexa-ink-4">
+                First resolved {formatDateTime(live.resolvedAt)}
+              </p>
+            )}
+            {live.closedAt && (
+              <p className="mt-1 text-xs text-nexa-ink-4">
+                Closed {formatDateTime(live.closedAt)}
+              </p>
+            )}
+            {live.sla && (
+              <p className="mt-2 text-xs text-nexa-ink-3">
+                First response: {slaLabel(live.sla.firstResponse.state)}
+                {" · "}
+                First resolution: {slaLabel(live.sla.resolution.state)}
+              </p>
+            )}
+            {(live.csat || detail?.csat) && (
+              <p className="mt-2 text-xs text-nexa-ink-3">
+                Customer satisfaction: {(live.csat ?? detail?.csat)?.rating}/5
+                {(live.csat ?? detail?.csat)?.comment
+                  ? ` — “${(live.csat ?? detail?.csat)?.comment}”`
+                  : ""}
+              </p>
+            )}
           </div>
           <StatusBadge status={live.status.toLowerCase()} />
         </div>
@@ -669,6 +715,28 @@ function SupportWorkspace({
             )}
           </div>
           <div className="flex gap-2 border-t border-nexa-line p-3">
+            {canned.length > 0 && (
+              <select
+                className="h-9 max-w-[140px] rounded-md border border-nexa-line bg-white px-2 text-xs"
+                defaultValue=""
+                disabled={composerDisabled}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  e.target.value = "";
+                  const reply = canned.find((c) => c.id === id);
+                  if (reply) setReply(reply.body);
+                }}
+              >
+                <option value="" disabled>
+                  Use saved reply
+                </option>
+                {canned.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.title}
+                  </option>
+                ))}
+              </select>
+            )}
             <input
               value={reply}
               onChange={(e) => setReply(e.target.value)}

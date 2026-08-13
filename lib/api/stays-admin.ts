@@ -4,6 +4,7 @@ import type {
   Booking,
   BookingDetail,
   BookingOccupant,
+  CannedReply,
   HostApplication,
   InvestigationMessage,
   KycRecord,
@@ -14,7 +15,10 @@ import type {
   RiskFlag,
   SafetyReport,
   SupportActivityItem,
+  SupportAnalytics,
+  SupportSlaPayload,
   Ticket,
+  TicketCsat,
   TicketDetail,
   TicketMessage,
   TicketNote,
@@ -1049,7 +1053,27 @@ export type TicketsResult = {
   hasMore: boolean;
 };
 
+function mapSla(row: unknown): SupportSlaPayload | undefined {
+  const sla = asRecord(row);
+  if (!sla) return undefined;
+  const mapLeg = (leg: unknown) => {
+    const l = asRecord(leg);
+    if (!l) return undefined;
+    return {
+      targetAt: String(l.targetAt ?? l.target_at ?? ""),
+      completedAt: (l.completedAt ?? l.completed_at ?? null) as string | null,
+      state: String(l.state ?? "ON_TRACK") as SupportSlaPayload["firstResponse"]["state"],
+    };
+  };
+  const firstResponse = mapLeg(sla.firstResponse ?? sla.first_response);
+  const resolution = mapLeg(sla.resolution);
+  if (!firstResponse || !resolution) return undefined;
+  return { firstResponse, resolution };
+}
+
 function mapTicket(row: Record<string, unknown>): Ticket {
+  const routing = asRecord(row.routing_suggestion ?? row.routingSuggestion);
+  const csatRow = asRecord(row.csat);
   return {
     id: String(row.id ?? ""),
     ticketNumber: String(row.ticket_number ?? row.ticketNumber ?? row.id ?? ""),
@@ -1064,6 +1088,9 @@ function mapTicket(row: Record<string, unknown>): Ticket {
     createdAt: String(row.created_at ?? row.createdAt ?? ""),
     updatedAt: String(row.updated_at ?? row.updatedAt ?? ""),
     resolvedAt: (row.resolved_at ?? row.resolvedAt) as string | undefined,
+    closedAt: (row.closed_at ?? row.closedAt) as string | undefined,
+    firstAdminResponseAt: (row.first_admin_response_at ??
+      row.firstAdminResponseAt) as string | undefined,
     bookingId: (row.booking_id ?? row.bookingId) as string | undefined,
     bookingRef: (row.booking_reference ?? row.bookingRef) as string | undefined,
     listingId: (row.listing_id ?? row.listingId) as string | undefined,
@@ -1073,6 +1100,23 @@ function mapTicket(row: Record<string, unknown>): Ticket {
     lastMessagePreview: (row.last_message_preview ?? row.lastMessagePreview) as
       | string
       | undefined,
+    conversationId: (row.conversation_id ?? row.conversationId) as string | undefined,
+    sla: mapSla(row.sla),
+    routingSuggestion: routing
+      ? {
+          suggestedPriority: String(
+            routing.suggestedPriority ?? routing.suggested_priority ?? "NORMAL",
+          ) as Ticket["priority"],
+          reason: String(routing.reason ?? ""),
+        }
+      : undefined,
+    csat: csatRow
+      ? {
+          rating: Number(csatRow.rating ?? 0),
+          comment: (csatRow.comment as string | null | undefined) ?? null,
+          submittedAt: String(csatRow.submitted_at ?? csatRow.submittedAt ?? ""),
+        }
+      : undefined,
   };
 }
 
@@ -1130,6 +1174,16 @@ export async function fetchTicket(ticketId: string): Promise<TicketDetail> {
   const listing = asRecord(row.listing);
   const report = asRecord(row.report);
   const safety = asRecord(row.safetyIssue ?? row.safety_issue);
+  const csatRow = asRecord(row.csat);
+  const csat: TicketCsat | null | undefined = csatRow
+    ? {
+        rating: Number(csatRow.rating ?? 0),
+        comment: (csatRow.comment as string | null | undefined) ?? null,
+        submittedAt: String(csatRow.submitted_at ?? csatRow.submittedAt ?? ""),
+      }
+    : row.csat === null
+      ? null
+      : undefined;
   return {
     ...mapTicket(row),
     conversationId: (row.conversationId ?? row.conversation_id) as string | undefined,
@@ -1160,6 +1214,7 @@ export async function fetchTicket(ticketId: string): Promise<TicketDetail> {
           reporterUserId: (safety.reporterUserId ?? safety.reporter_user_id) as string | undefined,
         }
       : null,
+    csat,
   };
 }
 
@@ -1193,6 +1248,144 @@ export async function patchTicket(
     method: "PATCH",
     body: JSON.stringify(patch),
   });
+}
+
+function mapCannedReply(row: Record<string, unknown>): CannedReply {
+  return {
+    id: String(row.id ?? ""),
+    title: String(row.title ?? ""),
+    body: String(row.body ?? ""),
+    category: (row.category as string | null | undefined) ?? null,
+    isActive: Boolean(row.is_active ?? row.isActive ?? true),
+    updatedAt: String(row.updated_at ?? row.updatedAt ?? ""),
+  };
+}
+
+export async function fetchCannedReplies(
+  includeInactive = false,
+): Promise<CannedReply[]> {
+  const params = new URLSearchParams();
+  if (includeInactive) params.set("includeInactive", "true");
+  const qs = params.toString();
+  const data = await apiFetch<{ items?: Record<string, unknown>[] }>(
+    `/admin/stays/support/canned-replies${qs ? `?${qs}` : ""}`,
+  );
+  return (data.items ?? []).map(mapCannedReply);
+}
+
+export async function fetchSupportAnalytics(query: {
+  from?: string;
+  to?: string;
+} = {}): Promise<SupportAnalytics> {
+  const params = new URLSearchParams();
+  if (query.from) params.set("from", query.from);
+  if (query.to) params.set("to", query.to);
+  const qs = params.toString();
+  const data = await apiFetch<Record<string, unknown>>(
+    `/admin/stays/support/analytics${qs ? `?${qs}` : ""}`,
+  );
+  const tickets = asRecord(data.tickets) ?? {};
+  const response = asRecord(data.response) ?? {};
+  const firstResolution = asRecord(data.firstResolution ?? data.first_resolution) ?? {};
+  const closure = asRecord(data.closure) ?? {};
+  const sla = asRecord(data.sla) ?? {};
+  const fr = asRecord(sla.firstResponse ?? sla.first_response) ?? {};
+  const fres = asRecord(sla.firstResolution ?? sla.first_resolution) ?? {};
+  const csat = asRecord(data.csat) ?? {};
+  const dist = asRecord(csat.ratingDistribution ?? csat.rating_distribution) ?? {};
+  return {
+    from: String(data.from ?? ""),
+    to: String(data.to ?? ""),
+    tickets: {
+      created: Number(tickets.created ?? 0),
+      open: Number(tickets.open ?? 0),
+      resolved: Number(tickets.resolved ?? 0),
+      closed: Number(tickets.closed ?? 0),
+      escalated: Number(tickets.escalated ?? 0),
+    },
+    response: {
+      averageFirstResponseSeconds:
+        response.averageFirstResponseSeconds != null
+          ? Number(response.averageFirstResponseSeconds)
+          : response.average_first_response_seconds != null
+            ? Number(response.average_first_response_seconds)
+            : null,
+      medianFirstResponseSeconds:
+        response.medianFirstResponseSeconds != null
+          ? Number(response.medianFirstResponseSeconds)
+          : response.median_first_response_seconds != null
+            ? Number(response.median_first_response_seconds)
+            : null,
+    },
+    firstResolution: {
+      averageSeconds:
+        firstResolution.averageSeconds != null
+          ? Number(firstResolution.averageSeconds)
+          : firstResolution.average_seconds != null
+            ? Number(firstResolution.average_seconds)
+            : null,
+      medianSeconds:
+        firstResolution.medianSeconds != null
+          ? Number(firstResolution.medianSeconds)
+          : firstResolution.median_seconds != null
+            ? Number(firstResolution.median_seconds)
+            : null,
+    },
+    closure: {
+      averageSeconds:
+        closure.averageSeconds != null
+          ? Number(closure.averageSeconds)
+          : closure.average_seconds != null
+            ? Number(closure.average_seconds)
+            : null,
+      medianSeconds:
+        closure.medianSeconds != null
+          ? Number(closure.medianSeconds)
+          : closure.median_seconds != null
+            ? Number(closure.median_seconds)
+            : null,
+    },
+    sla: {
+      firstResponse: {
+        onTrack: Number(fr.onTrack ?? fr.on_track ?? 0),
+        atRisk: Number(fr.atRisk ?? fr.at_risk ?? 0),
+        breached: Number(fr.breached ?? 0),
+      },
+      firstResolution: {
+        onTrack: Number(fres.onTrack ?? fres.on_track ?? 0),
+        atRisk: Number(fres.atRisk ?? fres.at_risk ?? 0),
+        breached: Number(fres.breached ?? 0),
+      },
+    },
+    csat: {
+      responses: Number(csat.responses ?? 0),
+      averageRating:
+        csat.averageRating != null
+          ? Number(csat.averageRating)
+          : csat.average_rating != null
+            ? Number(csat.average_rating)
+            : null,
+      ratingDistribution: {
+        "1": Number(dist["1"] ?? 0),
+        "2": Number(dist["2"] ?? 0),
+        "3": Number(dist["3"] ?? 0),
+        "4": Number(dist["4"] ?? 0),
+        "5": Number(dist["5"] ?? 0),
+      },
+    },
+    categories: Array.isArray(data.categories)
+      ? (data.categories as Record<string, unknown>[]).map((r) => ({
+          category: String(r.category ?? ""),
+          count: Number(r.count ?? 0),
+        }))
+      : [],
+    priorities: Array.isArray(data.priorities)
+      ? (data.priorities as Record<string, unknown>[]).map((r) => ({
+          priority: String(r.priority ?? ""),
+          count: Number(r.count ?? 0),
+        }))
+      : [],
+  };
 }
 
 function mapTicketNote(row: Record<string, unknown>, ticketId: string): TicketNote {

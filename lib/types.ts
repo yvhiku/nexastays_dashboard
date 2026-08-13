@@ -237,6 +237,8 @@ export interface Ticket {
   createdAt: string;
   updatedAt: string;
   resolvedAt?: string;
+  closedAt?: string;
+  firstAdminResponseAt?: string;
   bookingId?: string;
   bookingRef?: string;
   listingId?: string;
@@ -244,6 +246,73 @@ export interface Ticket {
   safetyIssueId?: string;
   unreadForSupport?: boolean;
   lastMessagePreview?: string;
+  conversationId?: string;
+  sla?: SupportSlaPayload;
+  routingSuggestion?: { suggestedPriority: TicketPriority; reason: string };
+  csat?: TicketCsat | null;
+}
+
+export type SupportSlaState = "ON_TRACK" | "AT_RISK" | "BREACHED";
+
+export interface SupportSlaLeg {
+  targetAt: string;
+  completedAt: string | null;
+  state: SupportSlaState;
+}
+
+export interface SupportSlaPayload {
+  firstResponse: SupportSlaLeg;
+  resolution: SupportSlaLeg;
+}
+
+export interface TicketCsat {
+  rating: number;
+  comment?: string | null;
+  submittedAt: string;
+}
+
+export interface CannedReply {
+  id: string;
+  title: string;
+  body: string;
+  category?: string | null;
+  isActive: boolean;
+  updatedAt: string;
+}
+
+export interface SupportAnalytics {
+  from: string;
+  to: string;
+  tickets: {
+    created: number;
+    open: number;
+    resolved: number;
+    closed: number;
+    escalated: number;
+  };
+  response: {
+    averageFirstResponseSeconds: number | null;
+    medianFirstResponseSeconds: number | null;
+  };
+  firstResolution: {
+    averageSeconds: number | null;
+    medianSeconds: number | null;
+  };
+  closure: {
+    averageSeconds: number | null;
+    medianSeconds: number | null;
+  };
+  sla: {
+    firstResponse: { onTrack: number; atRisk: number; breached: number };
+    firstResolution: { onTrack: number; atRisk: number; breached: number };
+  };
+  csat: {
+    responses: number;
+    averageRating: number | null;
+    ratingDistribution: Record<"1" | "2" | "3" | "4" | "5", number>;
+  };
+  categories: { category: string; count: number }[];
+  priorities: { priority: string; count: number }[];
 }
 
 export interface TicketMessage {
