@@ -20,6 +20,7 @@ import {
   ticketContextHref,
   type TicketsResult,
 } from "@/lib/api/stays-admin";
+import { ApiError } from "@/lib/api/client";
 import { formatDateTime, cn } from "@/lib/utils";
 import type {
   BookingDetail,
@@ -325,6 +326,7 @@ function SupportWorkspace({
   const [booking, setBooking] = useState<BookingDetail | null>(null);
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
+  const [statusChanging, setStatusChanging] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
   const ticketIdRef = useRef<string | null>(null);
 
@@ -374,9 +376,21 @@ function SupportWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ticket?.id, ticket?.bookingId, ticket?.bookingRef]);
 
+  async function refreshDetail() {
+    if (!ticket || ticket.id === "lookup") return;
+    try {
+      const next = await fetchTicket(ticket.id);
+      setDetail(next);
+    } catch {
+      // keep last known detail
+    }
+  }
+
   async function send() {
     if (!ticket || ticket.id === "lookup" || !reply.trim()) return;
+    if ((detail ?? ticket).status === "CLOSED" || statusChanging) return;
     setSending(true);
+    setStatusError(null);
     try {
       await sendTicketMessage(ticket.id, reply.trim());
       setReply("");
@@ -384,7 +398,13 @@ function SupportWorkspace({
       setMessages(next);
       await onChanged();
     } catch (err) {
-      setStatusError(err instanceof Error ? err.message : "Failed to send");
+      if (err instanceof ApiError && err.status === 409) {
+        setStatusError("This support ticket is closed.");
+        await refreshDetail();
+        await onChanged();
+      } else {
+        setStatusError(err instanceof Error ? err.message : "Failed to send");
+      }
     } finally {
       setSending(false);
     }
@@ -392,11 +412,16 @@ function SupportWorkspace({
 
   async function changeStatus(status: TicketStatus) {
     if (!ticket || ticket.id === "lookup") return;
+    setStatusChanging(true);
+    setStatusError(null);
     try {
       await patchTicket(ticket.id, { status });
+      await refreshDetail();
       await onChanged();
     } catch (err) {
       setStatusError(err instanceof Error ? err.message : "Failed to update status");
+    } finally {
+      setStatusChanging(false);
     }
   }
 
@@ -436,6 +461,9 @@ function SupportWorkspace({
   }
 
   const live = detail ?? ticket;
+  const isClosed = live.status === "CLOSED";
+  const composerDisabled =
+    ticket.id === "lookup" || isClosed || statusChanging || sending;
   const listingId = live.listingId ?? detail?.listing?.id;
   const hostUserId = detail?.hostUserId ?? detail?.listing?.hostUserId;
   const reportId = live.reportId ?? detail?.report?.id;
@@ -538,13 +566,15 @@ function SupportWorkspace({
             <input
               value={reply}
               onChange={(e) => setReply(e.target.value)}
-              placeholder="Write a reply…"
-              disabled={ticket.id === "lookup"}
+              placeholder={
+                isClosed ? "This support ticket is closed." : "Write a reply…"
+              }
+              disabled={composerDisabled}
               className="h-9 flex-1 rounded-md border border-nexa-line px-3 text-sm disabled:bg-nexa-bg-2"
             />
             <Button
               size="sm"
-              disabled={ticket.id === "lookup" || sending || !reply.trim()}
+              disabled={composerDisabled || !reply.trim()}
               onClick={() => void send()}
             >
               <Send className="h-4 w-4" />
