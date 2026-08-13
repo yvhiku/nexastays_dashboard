@@ -2,20 +2,27 @@
 
 import { useEffect, useMemo, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ShieldAlert } from "lucide-react";
+import { ShieldAlert, X } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { FilterTabs, SearchInput } from "@/components/ui/toolbar";
-import { ApiUnavailable } from "@/components/ui/api-unavailable";
-import { fetchReports, type ReportsResult } from "@/lib/api/stays-admin";
+import {
+  fetchReportDetail,
+  fetchReports,
+  patchReportStatus,
+  type ReportsResult,
+} from "@/lib/api/stays-admin";
 import { useAsyncData } from "@/lib/hooks/use-async-data";
 import { formatDateTime } from "@/lib/utils";
 import type { SafetyReport } from "@/lib/types";
 
 type Filter = "all" | SafetyReport["kind"];
+type TrustStatus = "OPEN" | "REVIEWED" | "ESCALATED" | "DISMISSED";
+
+const STATUS_ACTIONS: TrustStatus[] = ["OPEN", "REVIEWED", "ESCALATED", "DISMISSED"];
 
 export default function ReportsPage() {
   return (
@@ -31,14 +38,18 @@ function ReportsPageInner() {
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
   const [selected, setSelected] = useState<SafetyReport | null>(null);
-  const { data, loading, error } = useAsyncData<ReportsResult>(
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [lightbox, setLightbox] = useState<{ label: string; url: string } | null>(
+    null,
+  );
+  const { data, loading, error, reload } = useAsyncData<ReportsResult>(
     fetchReports,
     [],
-    { items: [], unavailable: true },
+    { items: [] },
   );
 
   const items = data?.items ?? [];
-  const unavailable = data?.unavailable ?? false;
 
   useEffect(() => {
     setQuery(searchParams.get("q") ?? "");
@@ -52,9 +63,11 @@ function ReportsPageInner() {
         r.id.toLowerCase() === q ||
         r.id.toLowerCase().includes(q) ||
         (r.reason ?? "").toLowerCase().includes(q) ||
-        (r.category ?? "").toLowerCase().includes(q),
+        (r.category ?? "").toLowerCase().includes(q) ||
+        (r.ticket?.ticketNumber ?? "").toLowerCase().includes(q),
     );
-    if (match) setSelected(match);
+    if (match) void openReport(match);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, searchParams]);
 
   const counts = useMemo(() => {
@@ -70,9 +83,52 @@ function ReportsPageInner() {
       match &&
       (r.id.toLowerCase().includes(q) ||
         (r.reason ?? "").toLowerCase().includes(q) ||
-        (r.category ?? "").toLowerCase().includes(q))
+        (r.category ?? "").toLowerCase().includes(q) ||
+        (r.reporter?.name ?? "").toLowerCase().includes(q) ||
+        (r.ticket?.ticketNumber ?? "").toLowerCase().includes(q))
     );
   });
+
+  async function openReport(report: SafetyReport) {
+    setSelected(report);
+    setActionError(null);
+    setLightbox(null);
+    if (
+      report.kind !== "conversation_reported" &&
+      report.kind !== "safety_issue"
+    ) {
+      return;
+    }
+    setDetailLoading(true);
+    try {
+      const detail = await fetchReportDetail(report.id, report.kind);
+      setSelected(detail);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to load report detail");
+    } finally {
+      setDetailLoading(false);
+    }
+  }
+
+  async function changeStatus(status: TrustStatus) {
+    if (!selected) return;
+    if (
+      selected.kind !== "conversation_reported" &&
+      selected.kind !== "safety_issue"
+    ) {
+      return;
+    }
+    setActionError(null);
+    try {
+      const next = await patchReportStatus(selected.id, selected.kind, status);
+      setSelected(next);
+      await reload();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to update status");
+    }
+  }
+
+  const ticketId = selected?.ticket?.id ?? selected?.supportTicketId;
 
   return (
     <div>
@@ -80,13 +136,14 @@ function ReportsPageInner() {
         title="Reports"
         description="Conversation reports and safety issues. Never silently delete — open the related listing, host, or support ticket."
       />
-      {unavailable && (
-        <ApiUnavailable
-          title="Reports API not connected"
-          detail="GET /admin/stays/reports is not available yet. When it lands, this queue will list conversation_reported and safety_issue events from Stays messaging."
-        />
+      {error && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-md border border-nexa-danger/30 bg-nexa-danger-soft px-3 py-2 text-sm text-nexa-danger">
+          <p>Unable to load reports. {error}</p>
+          <Button size="sm" variant="outline" onClick={() => void reload()}>
+            Retry
+          </Button>
+        </div>
       )}
-      {error && <p className="mb-4 text-sm text-nexa-danger">{error}</p>}
 
       <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <FilterTabs<Filter>
@@ -117,38 +174,36 @@ function ReportsPageInner() {
           <Table>
             <THead>
               <tr>
-                <TH>Report</TH>
                 <TH>Kind</TH>
                 <TH>Reason</TH>
-                <TH>Created</TH>
                 <TH>Status</TH>
+                <TH>Created</TH>
+                <TH>Evidence</TH>
                 <TH className="text-right">Open</TH>
               </tr>
             </THead>
             <tbody>
               {filtered.map((r) => (
-                <TR key={r.id} className="cursor-pointer" onClick={() => setSelected(r)}>
-                  <TD className="font-medium text-nexa-ink">{r.id.slice(0, 8)}</TD>
+                <TR key={r.id} className="cursor-pointer" onClick={() => void openReport(r)}>
                   <TD>{r.kind.replace(/_/g, " ")}</TD>
                   <TD className="text-nexa-ink-3">{r.reason ?? r.category ?? "—"}</TD>
+                  <TD>
+                    <StatusBadge status={(r.status ?? "OPEN").toLowerCase()} />
+                  </TD>
                   <TD className="text-nexa-ink-3">
                     {r.createdAt ? formatDateTime(r.createdAt) : "—"}
                   </TD>
-                  <TD>
-                    <StatusBadge status={(r.status ?? "open").toLowerCase()} />
-                  </TD>
+                  <TD className="text-nexa-ink-3">{r.evidenceCount ?? 0}</TD>
                   <TD className="text-right text-xs text-nexa-primary">View</TD>
                 </TR>
               ))}
             </tbody>
           </Table>
         )}
-        {!loading && filtered.length === 0 && (
+        {!loading && !error && filtered.length === 0 && (
           <div className="py-12 text-center">
             <ShieldAlert className="mx-auto h-10 w-10 text-nexa-ink-4" />
-            <p className="mt-3 text-sm text-nexa-ink-4">
-              {unavailable ? "No reports until the Stays API is connected." : "No reports found."}
-            </p>
+            <p className="mt-3 text-sm text-nexa-ink-4">No reports found.</p>
           </div>
         )}
       </Card>
@@ -163,6 +218,9 @@ function ReportsPageInner() {
             <h2 className="font-display text-xl font-semibold text-nexa-ink">
               Report {selected.id.slice(0, 8)}
             </h2>
+            {detailLoading && (
+              <p className="mt-2 text-xs text-nexa-ink-4">Loading detail…</p>
+            )}
             <dl className="mt-4 space-y-3 text-sm">
               <div>
                 <dt className="text-xs text-nexa-ink-4">Kind</dt>
@@ -173,14 +231,104 @@ function ReportsPageInner() {
                 <dd>{selected.reason ?? selected.category ?? "—"}</dd>
               </div>
               <div>
+                <dt className="text-xs text-nexa-ink-4">Status</dt>
+                <dd>
+                  <StatusBadge status={(selected.status ?? "OPEN").toLowerCase()} />
+                </dd>
+              </div>
+              <div>
                 <dt className="text-xs text-nexa-ink-4">Reporter</dt>
-                <dd>{selected.reporterId ?? "—"}</dd>
+                <dd>
+                  {selected.reporter?.name ?? selected.reporterId ?? "—"}
+                  {selected.reporter?.email ? (
+                    <span className="block text-xs text-nexa-ink-4">
+                      {selected.reporter.email}
+                    </span>
+                  ) : null}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-nexa-ink-4">Reported party</dt>
+                <dd>{selected.reportedUser?.name ?? selected.reportedUser?.id ?? "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-nexa-ink-4">Booking</dt>
+                <dd>
+                  {selected.booking?.reference ?? selected.bookingId ?? "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-nexa-ink-4">Listing</dt>
+                <dd>{selected.listing?.title ?? selected.listingId ?? "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-nexa-ink-4">Conversation</dt>
+                <dd className="break-all font-mono text-xs">
+                  {selected.conversationId ?? "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-nexa-ink-4">Linked ticket</dt>
+                <dd>
+                  {selected.ticket?.ticketNumber ??
+                    selected.supportTicketId ??
+                    "—"}
+                </dd>
               </div>
               <div>
                 <dt className="text-xs text-nexa-ink-4">Created</dt>
                 <dd>{selected.createdAt ? formatDateTime(selected.createdAt) : "—"}</dd>
               </div>
             </dl>
+
+            {(selected.evidence?.length ?? 0) > 0 && (
+              <div className="mt-5">
+                <p className="text-xs font-semibold uppercase text-nexa-ink-4">Evidence</p>
+                <div className="mt-2 grid grid-cols-3 gap-2">
+                  {selected.evidence!.map((item, index) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className="overflow-hidden rounded-md border border-nexa-line"
+                      onClick={() =>
+                        setLightbox({
+                          label: item.filename || `Evidence ${index + 1}`,
+                          url: item.url,
+                        })
+                      }
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={item.url}
+                        alt={item.filename || `Evidence ${index + 1}`}
+                        className="h-20 w-full object-cover"
+                      />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="mt-5">
+              <p className="text-xs font-semibold uppercase text-nexa-ink-4">Status actions</p>
+              <div className="mt-2 flex flex-wrap gap-1">
+                {STATUS_ACTIONS.map((status) => (
+                  <Button
+                    key={status}
+                    size="sm"
+                    variant={
+                      (selected.status ?? "").toUpperCase() === status ? "soft" : "outline"
+                    }
+                    onClick={() => void changeStatus(status)}
+                  >
+                    {status}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            {actionError && <p className="mt-3 text-xs text-nexa-danger">{actionError}</p>}
+
             <div className="mt-6 flex flex-col gap-2">
               {selected.listingId && (
                 <Button
@@ -198,17 +346,17 @@ function ReportsPageInner() {
                   Open booking
                 </Button>
               )}
-              {selected.supportTicketId && (
+              {ticketId && (
                 <Button
                   variant="outline"
                   onClick={() =>
-                    router.push(`/support?ticket=${encodeURIComponent(selected.supportTicketId!)}`)
+                    router.push(`/support?ticket=${encodeURIComponent(ticketId)}`)
                   }
                 >
                   Open support ticket
                 </Button>
               )}
-              {!selected.supportTicketId && (
+              {!ticketId && (
                 <Button variant="outline" onClick={() => router.push("/support")}>
                   Open support tickets
                 </Button>
@@ -218,11 +366,40 @@ function ReportsPageInner() {
               </Button>
             </div>
             <p className="mt-4 text-xs text-nexa-ink-4">
-              Reports are never silently deleted. Use freeze host, hide review, or a support
-              ticket from the related queues.
+              Reports are never silently deleted. Dismissed rows stay in the queue.
             </p>
           </aside>
         </>
+      )}
+
+      {lightbox && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-nexa-ink/80 p-4"
+          onClick={() => setLightbox(null)}
+        >
+          <div
+            className="relative max-h-[90vh] w-full max-w-3xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <p className="text-sm font-medium text-white">{lightbox.label}</p>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-white hover:bg-white/10"
+                onClick={() => setLightbox(null)}
+              >
+                <X className="h-4 w-4" /> Close
+              </Button>
+            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={lightbox.url}
+              alt={lightbox.label}
+              className="max-h-[85vh] w-full rounded-md bg-white object-contain"
+            />
+          </div>
+        </div>
       )}
     </div>
   );

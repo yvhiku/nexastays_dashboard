@@ -53,6 +53,8 @@ const statusMap: Record<string, StatusTone> = {
   in_progress: "info",
   reviewing: "info",
   open: "warning",
+  reviewed: "info",
+  dismissed: "neutral",
   flagged: "danger",
   suspended: "danger",
   banned: "danger",

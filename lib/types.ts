@@ -229,6 +229,7 @@ export interface Ticket {
   subject: string;
   category: TicketCategory;
   customerName: string;
+  requesterEmail?: string;
   party: "GUEST" | "HOST";
   assignee?: string;
   status: TicketStatus;
@@ -315,6 +316,20 @@ export interface LedgerEntry {
   createdAt: string;
 }
 
+export interface TrustPerson {
+  id: string;
+  name?: string | null;
+  email?: string | null;
+}
+
+export interface TrustEvidence {
+  id: string;
+  url: string;
+  contentType?: string;
+  filename?: string | null;
+  createdAt?: string;
+}
+
 export interface SafetyReport {
   id: string;
   kind: "conversation_reported" | "safety_issue" | "listing" | "user";
@@ -327,6 +342,13 @@ export interface SafetyReport {
   supportTicketId?: string;
   createdAt: string;
   status?: string;
+  reporter?: TrustPerson | null;
+  reportedUser?: TrustPerson | null;
+  booking?: { id: string; reference?: string | null } | null;
+  listing?: { id: string; title?: string | null } | null;
+  ticket?: { id: string; ticketNumber: string; status: string } | null;
+  evidenceCount?: number;
+  evidence?: TrustEvidence[];
 }
 
 export interface RiskFlag {

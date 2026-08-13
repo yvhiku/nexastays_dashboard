@@ -616,14 +616,7 @@ export async function fetchOpsOverview(): Promise<OpsOverview> {
   }
   let openTickets = data.attention.openTickets ?? 0;
   try {
-    const tickets = await fetchTickets();
-    if (!tickets.unavailable) {
-      openTickets = tickets.items.filter((t) =>
-        ["OPEN", "IN_PROGRESS", "ESCALATED", "WAITING_FOR_CUSTOMER", "WAITING_FOR_HOST"].includes(
-          t.status,
-        ),
-      ).length;
-    }
+    openTickets = await fetchOpenTicketCount();
   } catch {
     // Support API unavailable
   }
@@ -676,14 +669,7 @@ export async function fetchStats(): Promise<DashboardStats> {
 
   let openTickets = 0;
   try {
-    const tickets = await fetchTickets();
-    if (!tickets.unavailable) {
-      openTickets = tickets.items.filter((t) =>
-        ["OPEN", "IN_PROGRESS", "ESCALATED", "WAITING_FOR_CUSTOMER", "WAITING_FOR_HOST"].includes(
-          t.status,
-        ),
-      ).length;
-    }
+    openTickets = await fetchOpenTicketCount();
   } catch {
     openTickets = 0;
   }
@@ -1037,7 +1023,26 @@ export async function rejectHostApplication(id: string, reason: string) {
   });
 }
 
-export type TicketsResult = { items: Ticket[]; unavailable: boolean };
+export type TicketsQuery = {
+  limit?: number;
+  offset?: number;
+  status?: string;
+  priority?: string;
+  category?: string;
+  assignedAdminId?: string;
+  requesterUserId?: string;
+  bookingId?: string;
+  listingId?: string;
+  search?: string;
+};
+
+export type TicketsResult = {
+  items: Ticket[];
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+};
 
 function mapTicket(row: Record<string, unknown>): Ticket {
   return {
@@ -1045,7 +1050,8 @@ function mapTicket(row: Record<string, unknown>): Ticket {
     ticketNumber: String(row.ticket_number ?? row.ticketNumber ?? row.id ?? ""),
     subject: String(row.subject ?? row.category ?? "Support"),
     category: (row.category as Ticket["category"]) ?? "OTHER",
-    customerName: String(row.customer_name ?? row.customerName ?? row.user_id ?? "Customer"),
+    customerName: String(row.customer_name ?? row.customerName ?? "—"),
+    requesterEmail: (row.requester_email ?? row.requesterEmail) as string | undefined,
     party: row.party_type === "HOST" || row.party === "HOST" ? "HOST" : "GUEST",
     assignee: (row.assigned_admin_id ?? row.assignee) as string | undefined,
     status: (row.status as Ticket["status"]) ?? "OPEN",
@@ -1065,18 +1071,46 @@ function mapTicket(row: Record<string, unknown>): Ticket {
   };
 }
 
-/** Stays support tickets. Returns unavailable when the API is not connected. */
-export async function fetchTickets(): Promise<TicketsResult> {
-  try {
-    const data = await apiFetch<{ items?: Record<string, unknown>[] } | Record<string, unknown>[]>(
-      "/admin/stays/support/tickets?limit=200",
-    );
-    const rows = Array.isArray(data) ? data : data.items ?? [];
-    return { items: rows.map(mapTicket), unavailable: false };
-  } catch (err) {
-    if (isNotImplemented(err)) return { items: [], unavailable: true };
-    throw err;
-  }
+function ticketsQueryString(query: TicketsQuery): string {
+  const params = new URLSearchParams();
+  params.set("limit", String(Math.min(Math.max(query.limit ?? 50, 1), 100)));
+  params.set("offset", String(Math.max(query.offset ?? 0, 0)));
+  if (query.status) params.set("status", query.status);
+  if (query.priority) params.set("priority", query.priority);
+  if (query.category) params.set("category", query.category);
+  if (query.assignedAdminId) params.set("assignedAdminId", query.assignedAdminId);
+  if (query.requesterUserId) params.set("requesterUserId", query.requesterUserId);
+  if (query.bookingId) params.set("bookingId", query.bookingId);
+  if (query.listingId) params.set("listingId", query.listingId);
+  if (query.search?.trim()) params.set("search", query.search.trim());
+  return params.toString();
+}
+
+/** Stays support tickets with server-side filters and pagination. */
+export async function fetchTickets(query: TicketsQuery = {}): Promise<TicketsResult> {
+  const data = await apiFetch<{
+    items?: Record<string, unknown>[];
+    total?: number;
+    limit?: number;
+    offset?: number;
+    hasMore?: boolean;
+  }>(`/admin/stays/support/tickets?${ticketsQueryString(query)}`);
+  const items = (data.items ?? []).map(mapTicket);
+  const limit = Number(data.limit ?? query.limit ?? 50);
+  const offset = Number(data.offset ?? query.offset ?? 0);
+  const total = Number(data.total ?? items.length);
+  return {
+    items,
+    total,
+    limit,
+    offset,
+    hasMore: Boolean(data.hasMore ?? offset + items.length < total),
+  };
+}
+
+export async function fetchOpenTicketCount(): Promise<number> {
+  const data = await apiFetch<{ total?: number }>("/admin/stays/support/tickets/open-count");
+  return Number(data.total ?? 0);
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -1122,23 +1156,18 @@ export async function fetchTicket(ticketId: string): Promise<TicketDetail> {
 }
 
 export async function fetchTicketMessages(ticketId: string): Promise<TicketMessage[]> {
-  try {
-    const data = await apiFetch<{ items?: Record<string, unknown>[] } | Record<string, unknown>[]>(
-      `/admin/stays/support/tickets/${ticketId}/messages`,
-    );
-    const rows = Array.isArray(data) ? data : data.items ?? [];
-    return rows.map((row) => ({
-      id: String(row.id ?? ""),
-      ticketId,
-      senderType: normalizeSenderType(row.sender_type ?? row.senderType),
-      senderId: (row.sender_id ?? row.senderId) as string | undefined,
-      body: String(row.body ?? ""),
-      createdAt: String(row.created_at ?? row.createdAt ?? ""),
-    }));
-  } catch (err) {
-    if (isNotImplemented(err)) return [];
-    throw err;
-  }
+  const data = await apiFetch<{ items?: Record<string, unknown>[] } | Record<string, unknown>[]>(
+    `/admin/stays/support/tickets/${ticketId}/messages`,
+  );
+  const rows = Array.isArray(data) ? data : data.items ?? [];
+  return rows.map((row) => ({
+    id: String(row.id ?? ""),
+    ticketId,
+    senderType: normalizeSenderType(row.sender_type ?? row.senderType),
+    senderId: (row.sender_id ?? row.senderId) as string | undefined,
+    body: String(row.body ?? ""),
+    createdAt: String(row.created_at ?? row.createdAt ?? ""),
+  }));
 }
 
 export async function sendTicketMessage(ticketId: string, body: string) {
@@ -1158,36 +1187,110 @@ export async function patchTicket(
   });
 }
 
-export type ReportsResult = { items: SafetyReport[]; unavailable: boolean };
+export type ReportsResult = { items: SafetyReport[] };
+
+function mapPerson(
+  value: unknown,
+  fallbackId?: string,
+): SafetyReport["reporter"] {
+  const row = asRecord(value);
+  if (!row && !fallbackId) return null;
+  return {
+    id: String(row?.id ?? fallbackId ?? ""),
+    name: (row?.name as string | null | undefined) ?? null,
+    email: (row?.email as string | null | undefined) ?? null,
+  };
+}
+
+function mapEvidence(row: Record<string, unknown>): NonNullable<SafetyReport["evidence"]>[number] {
+  return {
+    id: String(row.id ?? ""),
+    url: String(row.url ?? ""),
+    contentType: (row.contentType ?? row.content_type) as string | undefined,
+    filename: (row.filename as string | null | undefined) ?? null,
+    createdAt: (row.createdAt ?? row.created_at) as string | undefined,
+  };
+}
+
+function mapSafetyReport(row: Record<string, unknown>, includeEvidence = false): SafetyReport {
+  const reporter = mapPerson(row.reporter, (row.actor_user_id ?? row.reporter_id ?? row.reporterId) as string | undefined);
+  const reported = mapPerson(row.reported_user ?? row.reportedUser);
+  const booking = asRecord(row.booking);
+  const listing = asRecord(row.listing);
+  const ticket = asRecord(row.ticket);
+  const evidenceRows = Array.isArray(row.evidence)
+    ? (row.evidence as Record<string, unknown>[]).map(mapEvidence)
+    : undefined;
+  return {
+    id: String(row.id ?? ""),
+    kind: (row.kind ?? row.action ?? "conversation_reported") as SafetyReport["kind"],
+    reason: (row.reason ??
+      (row.metadata as { reason?: string } | undefined)?.reason) as string | undefined,
+    category: (row.category ??
+      (row.metadata as { category?: string } | undefined)?.category) as string | undefined,
+    reporterId: reporter?.id,
+    conversationId: (row.conversation_id ?? row.conversationId) as string | undefined,
+    bookingId: (row.booking_id ?? row.bookingId ?? booking?.id) as string | undefined,
+    listingId: (row.listing_id ?? row.listingId ?? listing?.id) as string | undefined,
+    supportTicketId: (ticket?.id ??
+      row.support_ticket_id ??
+      row.supportTicketId) as string | undefined,
+    createdAt: String(row.created_at ?? row.createdAt ?? ""),
+    status: String(row.status ?? "OPEN").toUpperCase(),
+    reporter,
+    reportedUser: reported,
+    booking: booking
+      ? {
+          id: String(booking.id ?? ""),
+          reference: (booking.reference as string | null | undefined) ?? null,
+        }
+      : null,
+    listing: listing
+      ? {
+          id: String(listing.id ?? ""),
+          title: (listing.title as string | null | undefined) ?? null,
+        }
+      : null,
+    ticket: ticket
+      ? {
+          id: String(ticket.id ?? ""),
+          ticketNumber: String(ticket.ticket_number ?? ticket.ticketNumber ?? ""),
+          status: String(ticket.status ?? ""),
+        }
+      : null,
+    evidenceCount: Number(row.evidence_count ?? row.evidenceCount ?? evidenceRows?.length ?? 0),
+    ...(includeEvidence && evidenceRows ? { evidence: evidenceRows } : {}),
+  };
+}
 
 export async function fetchReports(): Promise<ReportsResult> {
-  try {
-    const data = await apiFetch<{ items?: Record<string, unknown>[] } | Record<string, unknown>[]>(
-      "/admin/stays/reports?limit=200",
-    );
-    const rows = Array.isArray(data) ? data : data.items ?? [];
-    return {
-      items: rows.map((row) => ({
-        id: String(row.id ?? ""),
-        kind: (row.kind ?? row.action ?? "conversation_reported") as SafetyReport["kind"],
-        reason: (row.reason ??
-          (row.metadata as { reason?: string } | undefined)?.reason) as string | undefined,
-        category: (row.category ??
-          (row.metadata as { category?: string } | undefined)?.category) as string | undefined,
-        reporterId: (row.actor_user_id ?? row.reporter_id ?? row.reporterId) as string | undefined,
-        conversationId: (row.conversation_id ?? row.conversationId) as string | undefined,
-        bookingId: (row.booking_id ?? row.bookingId) as string | undefined,
-        listingId: (row.listing_id ?? row.listingId) as string | undefined,
-        supportTicketId: (row.support_ticket_id ?? row.supportTicketId) as string | undefined,
-        createdAt: String(row.created_at ?? row.createdAt ?? ""),
-        status: (row.status as string | undefined) ?? "open",
-      })),
-      unavailable: false,
-    };
-  } catch (err) {
-    if (isNotImplemented(err)) return { items: [], unavailable: true };
-    throw err;
-  }
+  const data = await apiFetch<{ items?: Record<string, unknown>[] } | Record<string, unknown>[]>(
+    "/admin/stays/reports?limit=200",
+  );
+  const rows = Array.isArray(data) ? data : data.items ?? [];
+  return { items: rows.map((row) => mapSafetyReport(row, false)) };
+}
+
+export async function fetchReportDetail(
+  id: string,
+  kind: "conversation_reported" | "safety_issue",
+): Promise<SafetyReport> {
+  const row = await apiFetch<Record<string, unknown>>(
+    `/admin/stays/reports/${encodeURIComponent(id)}?kind=${encodeURIComponent(kind)}`,
+  );
+  return mapSafetyReport(row, true);
+}
+
+export async function patchReportStatus(
+  id: string,
+  kind: "conversation_reported" | "safety_issue",
+  status: "OPEN" | "REVIEWED" | "ESCALATED" | "DISMISSED",
+): Promise<SafetyReport> {
+  const row = await apiFetch<Record<string, unknown>>(`/admin/stays/reports/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ kind, status }),
+  });
+  return mapSafetyReport(row, true);
 }
 
 export async function fetchRiskFlags(): Promise<RiskFlag[]> {

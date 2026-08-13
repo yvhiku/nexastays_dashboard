@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, Suspense } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { LifeBuoy, Send, UserCheck } from "lucide-react";
@@ -9,7 +9,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/badge";
 import { FilterTabs, SearchInput } from "@/components/ui/toolbar";
-import { ApiUnavailable } from "@/components/ui/api-unavailable";
 import { useAuth } from "@/components/providers/auth-provider";
 import {
   fetchBookingDetail,
@@ -21,7 +20,6 @@ import {
   ticketContextHref,
   type TicketsResult,
 } from "@/lib/api/stays-admin";
-import { useAsyncData } from "@/lib/hooks/use-async-data";
 import { formatDateTime, cn } from "@/lib/utils";
 import type {
   BookingDetail,
@@ -33,6 +31,8 @@ import type {
 } from "@/lib/types";
 
 type Filter = "all" | TicketStatus;
+
+const PAGE_SIZE = 50;
 
 const STATUS_ACTIONS: TicketStatus[] = [
   "IN_PROGRESS",
@@ -48,6 +48,14 @@ function senderLabel(senderType: TicketMessage["senderType"]) {
   return "Customer";
 }
 
+function statusQuery(filter: Filter): string | undefined {
+  if (filter === "all") return undefined;
+  if (filter === "WAITING_FOR_CUSTOMER") {
+    return "WAITING_FOR_CUSTOMER,WAITING_FOR_HOST";
+  }
+  return filter;
+}
+
 export default function SupportPage() {
   return (
     <Suspense fallback={<p className="py-10 text-center text-sm text-nexa-ink-4">Loading…</p>}>
@@ -60,62 +68,80 @@ function SupportPageInner() {
   const searchParams = useSearchParams();
   const [filter, setFilter] = useState<Filter>("OPEN");
   const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
+  const [searchInput, setSearchInput] = useState(() => searchParams.get("q") ?? "");
+  const [offset, setOffset] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(
     () => searchParams.get("ticket") ?? null,
   );
   const [lookupTicket, setLookupTicket] = useState<Ticket | null>(null);
   const [lookupRef, setLookupRef] = useState("");
-  const { data, loading, error, reload } = useAsyncData<TicketsResult>(
-    fetchTickets,
-    [],
-    { items: [], unavailable: true },
-  );
+  const [data, setData] = useState<TicketsResult>({
+    items: [],
+    total: 0,
+    limit: PAGE_SIZE,
+    offset: 0,
+    hasMore: false,
+  });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const tickets = data?.items ?? [];
-  const unavailable = data?.unavailable ?? false;
+  const loadTickets = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const next = await fetchTickets({
+        limit: PAGE_SIZE,
+        offset,
+        status: statusQuery(filter),
+        search: query.trim() || undefined,
+      });
+      setData(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load support tickets.");
+    } finally {
+      setLoading(false);
+    }
+  }, [filter, offset, query]);
 
   useEffect(() => {
+    void loadTickets();
+  }, [loadTickets]);
+
+  useEffect(() => {
+    setSearchInput(searchParams.get("q") ?? "");
     setQuery(searchParams.get("q") ?? "");
     const ticketParam = searchParams.get("ticket");
     if (ticketParam) setSelectedId(ticketParam);
   }, [searchParams]);
 
   useEffect(() => {
+    const handle = setTimeout(() => {
+      setOffset(0);
+      setQuery(searchInput);
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [searchInput]);
+
+  useEffect(() => {
     if (!selectedId || selectedId === "lookup") return;
     const interval = setInterval(() => {
-      void reload();
+      void loadTickets();
     }, 8000);
     return () => clearInterval(interval);
-    // reload identity changes each render; poll only while a ticket is open
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId]);
+  }, [selectedId, loadTickets]);
 
-  const counts = useMemo(() => {
-    const c: Record<string, number> = { all: tickets.length };
-    for (const t of tickets) c[t.status] = (c[t.status] ?? 0) + 1;
-    return c;
-  }, [tickets]);
-
-  const filtered = tickets.filter((t) => {
-    const match =
-      filter === "all" ||
-      t.status === filter ||
-      (filter === "WAITING_FOR_CUSTOMER" && t.status === "WAITING_FOR_HOST");
-    const q = query.toLowerCase();
-    return (
-      match &&
-      (t.ticketNumber.toLowerCase().includes(q) ||
-        t.customerName.toLowerCase().includes(q) ||
-        t.subject.toLowerCase().includes(q) ||
-        (t.bookingRef ?? "").toLowerCase().includes(q) ||
-        t.id.toLowerCase().includes(q))
-    );
-  });
-
+  const tickets = data.items;
   const selected =
     selectedId === "lookup"
       ? lookupTicket
       : (tickets.find((t) => t.id === selectedId) ?? null);
+
+  const pageLabel = useMemo(() => {
+    if (data.total === 0) return "0 tickets";
+    const from = data.offset + 1;
+    const to = Math.min(data.offset + tickets.length, data.total);
+    return `${from}–${to} of ${data.total}`;
+  }, [data.offset, data.total, tickets.length]);
 
   return (
     <div>
@@ -124,13 +150,14 @@ function SupportPageInner() {
         description="Live Stays support tickets. Replies land on the customer Messages → Support thread."
       />
 
-      {unavailable && (
-        <ApiUnavailable
-          title="Support ticket store not connected"
-          detail="GET /admin/stays/support/tickets is not available yet. Do not use Nexa Pay support tickets. You can still look up a booking below to see guest → listing → host → payment context."
-        />
+      {error && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-md border border-nexa-danger/30 bg-nexa-danger-soft px-3 py-2 text-sm text-nexa-danger">
+          <p>Unable to load support tickets. {error}</p>
+          <Button size="sm" variant="outline" onClick={() => void loadTickets()}>
+            Retry
+          </Button>
+        </div>
       )}
-      {error && <p className="mb-4 text-sm text-nexa-danger">{error}</p>}
 
       <Card className="mb-4">
         <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-end">
@@ -174,24 +201,23 @@ function SupportPageInner() {
       <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <FilterTabs<Filter>
           value={filter}
-          onChange={setFilter}
+          onChange={(value) => {
+            setOffset(0);
+            setFilter(value);
+          }}
           options={[
-            { value: "OPEN", label: "Open", count: counts.OPEN ?? 0 },
-            { value: "IN_PROGRESS", label: "In progress", count: counts.IN_PROGRESS ?? 0 },
-            {
-              value: "WAITING_FOR_CUSTOMER",
-              label: "Waiting",
-              count: (counts.WAITING_FOR_CUSTOMER ?? 0) + (counts.WAITING_FOR_HOST ?? 0),
-            },
-            { value: "ESCALATED", label: "Escalated", count: counts.ESCALATED ?? 0 },
-            { value: "RESOLVED", label: "Resolved", count: counts.RESOLVED ?? 0 },
-            { value: "CLOSED", label: "Closed", count: counts.CLOSED ?? 0 },
-            { value: "all", label: "All", count: counts.all },
+            { value: "OPEN", label: "Open" },
+            { value: "IN_PROGRESS", label: "In progress" },
+            { value: "WAITING_FOR_CUSTOMER", label: "Waiting" },
+            { value: "ESCALATED", label: "Escalated" },
+            { value: "RESOLVED", label: "Resolved" },
+            { value: "CLOSED", label: "Closed" },
+            { value: "all", label: "All", count: data.total },
           ]}
         />
         <SearchInput
-          value={query}
-          onChange={setQuery}
+          value={searchInput}
+          onChange={setSearchInput}
           placeholder="Search tickets…"
           className="lg:w-72"
         />
@@ -201,63 +227,83 @@ function SupportPageInner() {
         <Card>
           {loading && tickets.length === 0 ? (
             <p className="py-10 text-center text-sm text-nexa-ink-4">Loading tickets…</p>
-          ) : filtered.length === 0 ? (
+          ) : !error && tickets.length === 0 ? (
             <div className="py-12 text-center">
               <LifeBuoy className="mx-auto h-10 w-10 text-nexa-ink-4" />
-              <p className="mt-3 text-sm text-nexa-ink-4">
-                {unavailable ? "No ticket store connected." : "No tickets match."}
-              </p>
+              <p className="mt-3 text-sm text-nexa-ink-4">No support tickets right now.</p>
             </div>
-          ) : (
-            <ul className="divide-y divide-nexa-line">
-              {filtered.map((t) => (
-                <li key={t.id}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setLookupTicket(null);
-                      setSelectedId(t.id);
-                    }}
-                    className={cn(
-                      "flex w-full items-start justify-between gap-3 px-4 py-3 text-left hover:bg-nexa-bg-2",
-                      selected?.id === t.id && "bg-nexa-primary-soft/40",
-                    )}
-                  >
-                    <div className="min-w-0">
-                      <p className="font-medium text-nexa-ink">
-                        {t.ticketNumber}{" "}
-                        <span className="font-normal text-nexa-ink-3">{t.subject}</span>
-                      </p>
-                      <p className="mt-0.5 text-xs text-nexa-ink-4">
-                        {t.customerName}
-                        {t.party === "HOST" ? " · Host" : " · Guest"}
-                        {t.bookingRef ? ` · ${t.bookingRef}` : ""}
-                        {t.lastMessagePreview ? ` · ${t.lastMessagePreview}` : ""}
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 flex-col items-end gap-1">
-                      <StatusBadge status={t.status.toLowerCase()} />
-                      {t.unreadForSupport && (
-                        <span className="rounded-full bg-nexa-primary px-1.5 text-[10px] font-semibold text-white">
-                          New
-                        </span>
+          ) : tickets.length === 0 ? null : (
+            <>
+              <ul className="divide-y divide-nexa-line">
+                {tickets.map((t) => (
+                  <li key={t.id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLookupTicket(null);
+                        setSelectedId(t.id);
+                      }}
+                      className={cn(
+                        "flex w-full items-start justify-between gap-3 px-4 py-3 text-left hover:bg-nexa-bg-2",
+                        selected?.id === t.id && "bg-nexa-primary-soft/40",
                       )}
-                    </div>
-                  </button>
-                </li>
-              ))}
-            </ul>
+                    >
+                      <div className="min-w-0">
+                        <p className="font-medium text-nexa-ink">
+                          {t.ticketNumber}{" "}
+                          <span className="font-normal text-nexa-ink-3">{t.subject}</span>
+                        </p>
+                        <p className="mt-0.5 text-xs text-nexa-ink-4">
+                          {t.customerName}
+                          {t.party === "HOST" ? " · Host" : " · Guest"}
+                          {t.bookingRef ? ` · ${t.bookingRef}` : ""}
+                          {t.lastMessagePreview ? ` · ${t.lastMessagePreview}` : ""}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 flex-col items-end gap-1">
+                        <StatusBadge status={t.status.toLowerCase()} />
+                        {t.unreadForSupport && (
+                          <span className="rounded-full bg-nexa-primary px-1.5 text-[10px] font-semibold text-white">
+                            New
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <div className="flex items-center justify-between gap-3 border-t border-nexa-line px-4 py-3 text-xs text-nexa-ink-4">
+                <span>{pageLabel}</span>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={offset <= 0 || loading}
+                    onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={!data.hasMore || loading}
+                    onClick={() => setOffset(offset + PAGE_SIZE)}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            </>
           )}
         </Card>
 
         <SupportWorkspace
           ticket={selected}
-          unavailable={unavailable}
           onClose={() => {
             setSelectedId(null);
             setLookupTicket(null);
           }}
-          onChanged={reload}
+          onChanged={loadTickets}
         />
       </div>
     </div>
@@ -266,12 +312,10 @@ function SupportPageInner() {
 
 function SupportWorkspace({
   ticket,
-  unavailable,
   onClose,
   onChanged,
 }: {
   ticket: Ticket | null;
-  unavailable: boolean;
   onClose: () => void;
   onChanged: () => Promise<void> | void;
 }) {
@@ -414,10 +458,20 @@ function SupportWorkspace({
             <p className="mt-1 text-xs text-nexa-ink-4">
               {live.priority} · {live.assignee ? `Assigned ${live.assignee}` : "Unassigned"}
             </p>
+            <p className="mt-1 text-xs text-nexa-ink-4">
+              {live.customerName}
+              {live.requesterEmail ? ` · ${live.requesterEmail}` : ""}
+              {live.party === "HOST" ? " · Host" : " · Guest"}
+            </p>
+            <p className="mt-1 text-xs text-nexa-ink-4">
+              Created {live.createdAt ? formatDateTime(live.createdAt) : "—"}
+              {" · "}
+              Updated {live.updatedAt ? formatDateTime(live.updatedAt) : "—"}
+            </p>
           </div>
           <StatusBadge status={live.status.toLowerCase()} />
         </div>
-        {ticket.id !== "lookup" && !unavailable && (
+        {ticket.id !== "lookup" && (
           <>
             <div className="mt-3 flex flex-wrap gap-1">
               {STATUS_ACTIONS.map((s) => (
@@ -452,9 +506,7 @@ function SupportWorkspace({
           <div className="flex-1 space-y-3 overflow-y-auto p-4">
             {messages.length === 0 ? (
               <p className="text-sm text-nexa-ink-4">
-                {unavailable || ticket.id === "lookup"
-                  ? "No conversation until the support API is connected."
-                  : "No messages yet."}
+                {ticket.id === "lookup" ? "No conversation for booking lookup." : "No messages yet."}
               </p>
             ) : (
               messages.map((m) => (
@@ -487,12 +539,12 @@ function SupportWorkspace({
               value={reply}
               onChange={(e) => setReply(e.target.value)}
               placeholder="Write a reply…"
-              disabled={unavailable || ticket.id === "lookup"}
+              disabled={ticket.id === "lookup"}
               className="h-9 flex-1 rounded-md border border-nexa-line px-3 text-sm disabled:bg-nexa-bg-2"
             />
             <Button
               size="sm"
-              disabled={unavailable || ticket.id === "lookup" || sending || !reply.trim()}
+              disabled={ticket.id === "lookup" || sending || !reply.trim()}
               onClick={() => void send()}
             >
               <Send className="h-4 w-4" />
@@ -503,6 +555,9 @@ function SupportWorkspace({
         <div className="overflow-y-auto p-4 text-sm">
           <p className="text-xs font-semibold uppercase text-nexa-ink-4">Context</p>
           <ContextBlock label="Customer" value={live.customerName} />
+          {live.requesterEmail && (
+            <ContextBlock label="Email" value={live.requesterEmail} />
+          )}
           <ContextBlock label="Party" value={live.party} />
           {live.bookingRef && (
             <ContextLink
