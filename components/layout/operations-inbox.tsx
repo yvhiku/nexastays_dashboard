@@ -47,6 +47,13 @@ function buildRows(overview: OpsOverview): InboxRow[] {
       href: "/listings?status=rejected",
     },
   ];
+  if ((a.openTickets ?? 0) > 0) {
+    rows.push({
+      label: "Open support tickets",
+      count: a.openTickets ?? 0,
+      href: "/support",
+    });
+  }
   return rows.filter((r) => r.count > 0);
 }
 

@@ -11,6 +11,10 @@ import {
   Star,
   ShieldAlert,
   UserCheck,
+  Wallet,
+  RotateCcw,
+  LifeBuoy,
+  UserCog,
   type LucideIcon,
 } from "lucide-react";
 
@@ -19,7 +23,7 @@ export interface NavItem {
   href: string;
   icon: LucideIcon;
   badgeKey?: string;
-  /** Hide from sidebar when badge count is 0 (e.g. Moderation stub). */
+  /** Hide from sidebar when badge count is 0 (e.g. empty stub queues). */
   hideWhenBadgeZero?: boolean;
 }
 
@@ -38,39 +42,56 @@ export const navEntries: NavEntry[] = [
     item: { label: "Overview", href: "/", icon: LayoutDashboard },
   },
   {
-    type: "link",
-    item: {
+    type: "group",
+    group: {
       label: "Operations",
-      href: "/operations",
-      icon: Inbox,
-      badgeKey: "opsAttention",
+      items: [
+        {
+          label: "Inbox",
+          href: "/operations",
+          icon: Inbox,
+          badgeKey: "opsAttention",
+        },
+        { label: "Bookings", href: "/bookings", icon: CalendarCheck },
+        {
+          label: "Listings",
+          href: "/listings",
+          icon: Home,
+          badgeKey: "pendingListings",
+        },
+        {
+          label: "Hosts",
+          href: "/hosts",
+          icon: UserCheck,
+          badgeKey: "pendingHostVerification",
+        },
+        { label: "Guests", href: "/guests", icon: Users },
+      ],
     },
   },
   {
-    type: "link",
-    item: {
-      label: "Listings",
-      href: "/listings",
-      icon: Home,
-      badgeKey: "pendingListings",
+    type: "group",
+    group: {
+      label: "Finance",
+      items: [
+        { label: "Payments", href: "/payments", icon: Wallet },
+        { label: "Refunds", href: "/refunds", icon: RotateCcw },
+      ],
     },
   },
   {
-    type: "link",
-    item: { label: "Bookings", href: "/bookings", icon: CalendarCheck },
-  },
-  {
-    type: "link",
-    item: {
-      label: "Hosts",
-      href: "/hosts",
-      icon: UserCheck,
-      badgeKey: "pendingHostVerification",
+    type: "group",
+    group: {
+      label: "Support",
+      items: [
+        {
+          label: "Tickets",
+          href: "/support",
+          icon: LifeBuoy,
+          badgeKey: "openTickets",
+        },
+      ],
     },
-  },
-  {
-    type: "link",
-    item: { label: "Guests", href: "/guests", icon: Users },
   },
   {
     type: "group",
@@ -83,33 +104,25 @@ export const navEntries: NavEntry[] = [
           icon: BadgeCheck,
           badgeKey: "pendingKyc",
         },
-        {
-          label: "Reviews",
-          href: "/reviews",
-          icon: Star,
-        },
-        {
-          label: "Moderation",
-          href: "/moderation",
-          icon: ShieldAlert,
-          badgeKey: "openRisks",
-          hideWhenBadgeZero: true,
-        },
-        {
-          label: "Audit Logs",
-          href: "/audit-logs",
-          icon: ScrollText,
-        },
+        { label: "Reports", href: "/reports", icon: ShieldAlert },
+        { label: "Reviews", href: "/reviews", icon: Star },
+        { label: "Audit Logs", href: "/audit-logs", icon: ScrollText },
+      ],
+    },
+  },
+  {
+    type: "group",
+    group: {
+      label: "System",
+      items: [
+        { label: "Admin Users", href: "/admin-users", icon: UserCog },
+        { label: "Settings", href: "/settings", icon: Settings },
       ],
     },
   },
   {
     type: "link",
     item: { label: "Analytics", href: "/analytics", icon: BarChart3 },
-  },
-  {
-    type: "link",
-    item: { label: "Settings", href: "/settings", icon: Settings },
   },
 ];
 

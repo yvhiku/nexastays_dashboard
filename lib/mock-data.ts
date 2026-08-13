@@ -228,6 +228,14 @@ export const bookings: Booking[] = Array.from({ length: 60 }).map((_, i) => {
     guests: 1 + (i % 5),
     total: listing.pricePerNight * nights,
     status,
+    rawStatus:
+      status === "pending"
+        ? "PAYMENT_PENDING"
+        : status === "cancelled"
+          ? "CANCELLED_BY_GUEST"
+          : status === "completed"
+            ? "COMPLETED"
+            : "CONFIRMED",
     createdAt: daysAgo(i % 30),
     cancellationReason:
       status === "cancelled"
@@ -281,13 +289,8 @@ export const reviews: Review[] = Array.from({ length: 40 }).map((_, i) => {
 
 // ---------- Tickets ----------
 export const tickets: Ticket[] = Array.from({ length: 24 }).map((_, i) => {
-  const types = [
-    "guest_complaint",
-    "host_complaint",
-    "booking_dispute",
-  ] as const;
-  const statuses = ["open", "in_progress", "resolved", "escalated"] as const;
-  const priorities = ["low", "medium", "high", "urgent"] as const;
+  const statuses = ["OPEN", "IN_PROGRESS", "RESOLVED", "ESCALATED"] as const;
+  const priorities = ["LOW", "NORMAL", "HIGH", "URGENT"] as const;
   const subjects = [
     "Refund not processed after cancellation",
     "Property not as described",
@@ -300,9 +303,11 @@ export const tickets: Ticket[] = Array.from({ length: 24 }).map((_, i) => {
   ];
   return {
     id: `TKT-${3000 + i}`,
+    ticketNumber: `SUP-2026-${String(100 + i).padStart(5, "0")}`,
     subject: pick(subjects, i),
-    type: pick([...types], i),
-    requester: pick(users, i).name,
+    category: "BOOKING" as const,
+    customerName: pick(users, i).name,
+    party: "GUEST" as const,
     assignee: i % 4 === 0 ? undefined : pick(["Ops Team", "Sana K.", "Reda B."], i),
     status: pick([...statuses], i),
     priority: pick([...priorities], i),
@@ -551,7 +556,7 @@ export const metrics = {
   conversionRate: 3.8,
   pendingListings: listings.filter((l) => l.status === "pending").length,
   flaggedListings: listings.filter((l) => l.status === "flagged").length,
-  openTickets: tickets.filter((t) => t.status !== "resolved").length,
+  openTickets: tickets.filter((t) => t.status !== "RESOLVED" && t.status !== "CLOSED").length,
   pendingKyc: kycRecords.filter((k) => k.status === "pending").length,
   openRisks: riskFlags.filter((r) => r.status !== "resolved").length,
 };

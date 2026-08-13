@@ -14,6 +14,7 @@ import {
   approveHostApplication,
   fetchHostApplicationDocumentBlobUrl,
   fetchHostApplications,
+  fetchListingsPage,
   freezeHost,
   rejectHostApplication,
   unfreezeHost,
@@ -84,7 +85,7 @@ function HostsPageInner() {
   const [filter, setFilter] = useState<Filter>(() =>
     normalizeHostFilter(searchParams.get("status")),
   );
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
   const [selected, setSelected] = useState<HostApplication | null>(null);
   const [acting, setActing] = useState<string | null>(null);
   const { data: applications, loading, error, reload } = useAsyncList(
@@ -94,6 +95,7 @@ function HostsPageInner() {
 
   useEffect(() => {
     setFilter(normalizeHostFilter(searchParams.get("status")));
+    setQuery(searchParams.get("q") ?? "");
   }, [searchParams]);
 
   function updateFilter(next: Filter) {
@@ -542,6 +544,8 @@ function ApplicationDrawer({
               </div>
             )}
 
+            <HostListings userId={application.userId} />
+
             {canReview && (
               <div className="mt-5 space-y-3">
                 <label className="block text-xs font-semibold uppercase text-nexa-ink-4">
@@ -684,6 +688,51 @@ function Detail({ label, value }: { label: string; value: string }) {
     <div>
       <dt className="text-xs font-semibold uppercase text-nexa-ink-4">{label}</dt>
       <dd className="mt-0.5 capitalize text-nexa-ink-2">{value}</dd>
+    </div>
+  );
+}
+
+function HostListings({ userId }: { userId: string }) {
+  const [titles, setTitles] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetchListingsPage({ status: "all", limit: 100, offset: 0 })
+      .then((page) => {
+        if (cancelled) return;
+        setTitles(
+          page.items.filter((l) => l.hostId === userId).map((l) => `${l.title} (${l.status})`),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setTitles([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  return (
+    <div className="mt-5">
+      <p className="mb-2 text-xs font-semibold uppercase text-nexa-ink-4">Properties</p>
+      {loading ? (
+        <p className="text-sm text-nexa-ink-4">Loading listings…</p>
+      ) : titles.length === 0 ? (
+        <p className="text-sm text-nexa-ink-4">No listings found for this host.</p>
+      ) : (
+        <ul className="space-y-1 text-sm text-nexa-ink-2">
+          {titles.map((t) => (
+            <li key={t} className="rounded-md border border-nexa-line px-3 py-1.5">
+              {t}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

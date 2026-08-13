@@ -10,11 +10,17 @@ import {
   type ReactNode,
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { adminLogin, adminLogout, hasAdminSession } from "@/lib/api/auth";
+import {
+  adminLogin,
+  adminLogout,
+  fetchAdminSession,
+  type AdminSession,
+} from "@/lib/api/auth";
 import { clearAccessToken, getAccessToken } from "@/lib/api/client";
 
 type AuthContextValue = {
   token: string | null;
+  session: AdminSession | null;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
 };
@@ -23,19 +29,22 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
+  const [session, setSession] = useState<AdminSession | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
 
   useEffect(() => {
-    const memoryToken = getAccessToken();
-    if (memoryToken) {
-      setToken(memoryToken);
-      setAuthReady(true);
-      return;
-    }
-    void hasAdminSession().then((authenticated) => {
-      setToken(authenticated ? "cookie-session" : null);
+    void fetchAdminSession().then((next) => {
+      if (next?.authenticated) {
+        setSession(next);
+        setToken(getAccessToken() || "cookie-session");
+      } else if (getAccessToken()) {
+        setToken(getAccessToken());
+      } else {
+        setToken(null);
+        setSession(null);
+      }
       setAuthReady(true);
     });
   }, []);
@@ -52,18 +61,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (email: string, password: string) => {
     const t = await adminLogin(email, password);
     setToken(t);
+    const next = await fetchAdminSession();
+    setSession(next);
   }, []);
 
   const logout = useCallback(() => {
     void adminLogout().catch(() => {});
     clearAccessToken();
     setToken(null);
+    setSession(null);
     router.replace("/login");
   }, [router]);
 
   const value = useMemo(
-    () => ({ token, login, logout }),
-    [token, login, logout],
+    () => ({ token, session, login, logout }),
+    [token, session, login, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

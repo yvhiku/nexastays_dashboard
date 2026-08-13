@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { Ban, Eye, RotateCcw, Star, ShieldCheck, Wallet, Home } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
@@ -20,11 +21,24 @@ import type { AppUser } from "@/lib/types";
 type Filter = "all" | "active" | "suspended" | "banned";
 
 export default function GuestsPage() {
+  return (
+    <Suspense fallback={<p className="py-10 text-center text-sm text-nexa-ink-4">Loading…</p>}>
+      <GuestsPageInner />
+    </Suspense>
+  );
+}
+
+function GuestsPageInner() {
+  const searchParams = useSearchParams();
   const [filter, setFilter] = useState<Filter>("all");
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
   const [selected, setSelected] = useState<AppUser | null>(null);
   const [acting, setActing] = useState<string | null>(null);
   const { data: users, loading, error, reload } = useAsyncList(fetchUsers, []);
+
+  useEffect(() => {
+    setQuery(searchParams.get("q") ?? "");
+  }, [searchParams]);
 
   const guests = useMemo(
     () => users.filter((u) => u.role === "guest" || u.role === "both"),
@@ -58,6 +72,22 @@ export default function GuestsPage() {
       else await rejectHost(id, "Rejected by admin");
       await reload();
       setSelected(null);
+    } finally {
+      setActing(null);
+    }
+  }
+
+  async function runGuestStatus(user: AppUser, next: "SUSPENDED" | "ACTIVE") {
+    const ok = window.confirm(
+      next === "SUSPENDED"
+        ? `Suspend ${user.name}? They will be marked SUSPENDED in Identity.`
+        : `Reactivate ${user.name} and restore ACTIVE status?`,
+    );
+    if (!ok) return;
+    setActing(user.id);
+    try {
+      await updateUserAccountStatus(user.id, next);
+      await reload();
     } finally {
       setActing(null);
     }
@@ -165,12 +195,24 @@ export default function GuestsPage() {
                         </Button>
                       </>
                     )}
-                    {u.status === "active" ? (
-                      <Button variant="outline" size="icon" title="Suspend">
+                    {u.status === "active" || u.status === "pending" ? (
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        title="Suspend"
+                        disabled={acting === u.id}
+                        onClick={() => runGuestStatus(u, "SUSPENDED")}
+                      >
                         <Ban className="h-4 w-4" />
                       </Button>
                     ) : (
-                      <Button variant="outline" size="icon" title="Reset status">
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        title="Reactivate"
+                        disabled={acting === u.id}
+                        onClick={() => runGuestStatus(u, "ACTIVE")}
+                      >
                         <RotateCcw className="h-4 w-4" />
                       </Button>
                     )}

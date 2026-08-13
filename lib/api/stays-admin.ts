@@ -6,14 +6,17 @@ import type {
   BookingOccupant,
   HostApplication,
   KycRecord,
+  LedgerEntry,
   Listing,
   ListingDetail,
   Review,
   RiskFlag,
+  SafetyReport,
   Ticket,
+  TicketMessage,
 } from "../types";
 import { apiConfig } from "./config";
-import { apiFetch, getAccessToken } from "./client";
+import { apiFetch, getAccessToken, isNotImplemented } from "./client";
 
 const THUMB_COLORS = [
   "#E8507A",
@@ -43,8 +46,9 @@ function mapListingStatus(
     case "PAUSED":
       return "suspended";
     case "SUBMITTED":
-    case "DRAFT":
       return "pending";
+    case "DRAFT":
+      return "draft";
     case "REJECTED":
       return "rejected";
     default:
@@ -170,6 +174,7 @@ export function mapListing(row: ApiListing): Listing {
     address: row.city,
     type: row.listing_type,
     status: mapListingStatus(row.status),
+    rawStatus: row.status,
     pricePerNight: price,
     rating: Number(row.avg_rating ?? 0),
     reviewsCount: row.review_count ?? 0,
@@ -280,6 +285,7 @@ export async function fetchListingDetail(id: string): Promise<ListingDetail> {
 
 export function mapBooking(row: {
   id: string;
+  booking_reference?: string | null;
   guest_user_id: string;
   status: string;
   checkin_date: string;
@@ -287,7 +293,11 @@ export function mapBooking(row: {
   guest_count: number;
   total_paid?: number | null;
   created_at: string;
-  listing?: { title?: string; city?: string; host_user_id?: string } | null;
+  paid_at?: string | null;
+  confirmed_at?: string | null;
+  completed_at?: string | null;
+  listing_id?: string;
+  listing?: { id?: string; title?: string; city?: string; host_user_id?: string } | null;
 }): Booking {
   // Match stays bookingNightsBetween: UTC YMD, checkout exclusive.
   const ci = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(row.checkin_date));
@@ -305,12 +315,13 @@ export function mapBooking(row: {
       : 1;
   return {
     id: row.id,
-    reference: row.id.slice(0, 8).toUpperCase(),
+    reference: row.booking_reference?.trim() || row.id.slice(0, 8).toUpperCase(),
     guestUserId: row.guest_user_id,
     hostUserId: row.listing?.host_user_id,
     guestName: row.guest_user_id.slice(0, 8),
     hostName: row.listing?.host_user_id?.slice(0, 8) ?? "—",
     listingTitle: row.listing?.title ?? "—",
+    listingId: row.listing_id ?? row.listing?.id,
     city: row.listing?.city ?? "—",
     checkIn: row.checkin_date,
     checkOut: row.checkout_date,
@@ -318,7 +329,11 @@ export function mapBooking(row: {
     guests: row.guest_count,
     total: Number(row.total_paid ?? 0),
     status: mapBookingStatus(row.status),
+    rawStatus: row.status,
     createdAt: row.created_at,
+    paidAt: row.paid_at ?? null,
+    confirmedAt: row.confirmed_at ?? null,
+    completedAt: row.completed_at ?? null,
   };
 }
 
@@ -413,9 +428,17 @@ export function mapReview(row: {
   rating: number;
   comment?: string | null;
   created_at: string;
+  status?: string | null;
   listing?: { title?: string; host_user_id?: string } | null;
 }): Review {
   const rating = row.rating;
+  const raw = row.status?.toUpperCase();
+  const status: Review["status"] =
+    raw === "HIDDEN" || raw === "FLAGGED"
+      ? "flagged"
+      : raw === "REMOVED"
+        ? "removed"
+        : "published";
   return {
     id: row.id,
     guestName: row.guest_user_id.slice(0, 8),
@@ -424,7 +447,7 @@ export function mapReview(row: {
     rating,
     comment: row.comment ?? "",
     createdAt: row.created_at,
-    status: "published",
+    status,
     sentiment: rating >= 4 ? "positive" : rating <= 2 ? "negative" : "neutral",
   };
 }
@@ -477,6 +500,9 @@ export type OpsOverview = {
     needsChangesListings: number;
     failedPayouts: number;
     urgentAlerts: number;
+    openTickets?: number;
+    paymentFailures?: number;
+    pendingRefunds?: number;
     oldestPendingListingAt: string | null;
     oldestPendingListingHours: number | null;
     oldestPendingHostApplicationAt: string | null;
@@ -529,6 +555,9 @@ export const EMPTY_OPS_OVERVIEW: OpsOverview = {
     needsChangesListings: 0,
     failedPayouts: 0,
     urgentAlerts: 0,
+    openTickets: 0,
+    paymentFailures: 0,
+    pendingRefunds: 0,
     oldestPendingListingAt: null,
     oldestPendingListingHours: null,
     oldestPendingHostApplicationAt: null,
@@ -565,11 +594,25 @@ export async function fetchOpsOverview(): Promise<OpsOverview> {
     // Identity unavailable — leave null/0
     if (pendingKyc == null) pendingKyc = 0;
   }
+  let openTickets = data.attention.openTickets ?? 0;
+  try {
+    const tickets = await fetchTickets();
+    if (!tickets.unavailable) {
+      openTickets = tickets.items.filter((t) =>
+        ["OPEN", "IN_PROGRESS", "ESCALATED", "WAITING_FOR_CUSTOMER", "WAITING_FOR_HOST"].includes(
+          t.status,
+        ),
+      ).length;
+    }
+  } catch {
+    // Support API unavailable
+  }
   return {
     ...data,
     attention: {
       ...data.attention,
       pendingKyc: pendingKyc ?? 0,
+      openTickets,
     },
   };
 }
@@ -611,12 +654,26 @@ export async function fetchStats(): Promise<DashboardStats> {
   const opsAttention =
     s.pendingListings + s.pendingHostVerification + pendingKyc;
 
+  let openTickets = 0;
+  try {
+    const tickets = await fetchTickets();
+    if (!tickets.unavailable) {
+      openTickets = tickets.items.filter((t) =>
+        ["OPEN", "IN_PROGRESS", "ESCALATED", "WAITING_FOR_CUSTOMER", "WAITING_FOR_HOST"].includes(
+          t.status,
+        ),
+      ).length;
+    }
+  } catch {
+    openTickets = 0;
+  }
+
   return {
     ...s,
     pendingListingsBadge: s.pendingListings,
     openRisks: 0,
     pendingKyc,
-    openTickets: 0,
+    openTickets,
     opsAttention,
     totalUsers: s.totalHosts,
     activeListings: s.liveListings,
@@ -650,6 +707,8 @@ export function listingStatusQuery(ui?: string): string | undefined {
       return "PAUSED";
     case "rejected":
       return "REJECTED";
+    case "draft":
+      return "DRAFT";
     default:
       return ui.toUpperCase();
   }
@@ -662,6 +721,7 @@ export type ListingCounts = {
   rejected: number;
   live: number;
   paused: number;
+  draft: number;
 };
 
 export const EMPTY_LISTING_COUNTS: ListingCounts = {
@@ -671,6 +731,7 @@ export const EMPTY_LISTING_COUNTS: ListingCounts = {
   rejected: 0,
   live: 0,
   paused: 0,
+  draft: 0,
 };
 
 export type ListingsPageResult = {
@@ -683,7 +744,25 @@ export type ListingsPageResult = {
 };
 
 export async function fetchListingCounts(): Promise<ListingCounts> {
-  return apiFetch<ListingCounts>("/admin/stays/listing-counts");
+  const data = await apiFetch<Partial<ListingCounts>>("/admin/stays/listing-counts");
+  let draft = data.draft ?? 0;
+  if (data.draft == null) {
+    try {
+      const page = await fetchListingsPage({ status: "draft", limit: 1, offset: 0 });
+      draft = page.total;
+    } catch {
+      draft = 0;
+    }
+  }
+  return {
+    all: data.all ?? 0,
+    pending: data.pending ?? 0,
+    approved: data.approved ?? 0,
+    rejected: data.rejected ?? 0,
+    live: data.live ?? 0,
+    paused: data.paused ?? 0,
+    draft,
+  };
 }
 
 export async function fetchListingsPage(options?: {
@@ -748,26 +827,60 @@ type ApiBookingDetail = Parameters<typeof mapBooking>[0] & {
   payout_amount?: number | string | null;
   currency?: string;
   occupants?: BookingOccupant[];
+  ledger?: Array<{
+    id: string;
+    booking_id?: string;
+    type: LedgerEntry["type"];
+    amount: number | string;
+    currency?: string;
+    status: LedgerEntry["status"];
+    created_at: string;
+  }>;
 };
+
+function mapLedger(row: NonNullable<ApiBookingDetail["ledger"]>[number]): LedgerEntry {
+  return {
+    id: row.id,
+    bookingId: row.booking_id ?? "",
+    type: row.type,
+    amount: Number(row.amount),
+    currency: row.currency ?? "MAD",
+    status: row.status,
+    createdAt: row.created_at,
+  };
+}
 
 function mapBookingDetail(row: ApiBookingDetail): BookingDetail {
   const base = mapBooking(row);
   return {
     ...base,
-    rawStatus: row.status,
-    listingId: row.listing_id,
+    listingId: row.listing_id ?? base.listingId,
     subtotal: row.total_subtotal != null ? Number(row.total_subtotal) : undefined,
     guestFee: row.guest_fee != null ? Number(row.guest_fee) : undefined,
     hostFee: row.host_fee != null ? Number(row.host_fee) : undefined,
     payoutAmount: row.payout_amount != null ? Number(row.payout_amount) : null,
     currency: row.currency ?? "MAD",
     occupants: row.occupants ?? [],
+    ledger: row.ledger?.map(mapLedger),
   };
 }
 
 export async function fetchBookingDetail(id: string): Promise<BookingDetail> {
   const row = await apiFetch<ApiBookingDetail>(`/admin/stays/bookings/${id}`);
-  return mapBookingDetail(row);
+  const detail = mapBookingDetail(row);
+  if (!detail.ledger) {
+    try {
+      const ledger = await apiFetch<ApiBookingDetail["ledger"]>(
+        `/admin/stays/bookings/${id}/ledger`,
+      );
+      if (Array.isArray(ledger)) detail.ledger = ledger.map(mapLedger);
+    } catch (err) {
+      if (!isNotImplemented(err)) {
+        // ignore missing ledger; keep booking detail
+      }
+    }
+  }
+  return detail;
 }
 
 export function occupantIdDocumentApiPath(
@@ -852,6 +965,26 @@ export async function setListingLive(id: string) {
   return apiFetch(`/admin/stays/listings/${id}/set-live`, { method: "POST" });
 }
 
+export async function pauseListing(id: string) {
+  return apiFetch(`/admin/stays/listings/${id}/pause`, { method: "POST" });
+}
+
+export async function unpauseListing(id: string) {
+  return apiFetch(`/admin/stays/listings/${id}/unpause`, { method: "POST" });
+}
+
+export async function hideReview(id: string) {
+  return apiFetch(`/admin/stays/reviews/${id}/hide`, { method: "PATCH" });
+}
+
+export async function publishReview(id: string) {
+  return apiFetch(`/admin/stays/reviews/${id}/publish`, { method: "PATCH" });
+}
+
+export async function deleteReview(id: string) {
+  return apiFetch(`/admin/stays/reviews/${id}`, { method: "DELETE" });
+}
+
 export async function approveHost(id: string) {
   return apiFetch(`/admin/stays/hosts/${id}/approve`, { method: "POST" });
 }
@@ -884,9 +1017,115 @@ export async function rejectHostApplication(id: string, reason: string) {
   });
 }
 
-/** Not yet backed by Stays API — returns empty until implemented. */
-export async function fetchTickets(): Promise<Ticket[]> {
-  return [];
+export type TicketsResult = { items: Ticket[]; unavailable: boolean };
+
+function mapTicket(row: Record<string, unknown>): Ticket {
+  return {
+    id: String(row.id ?? ""),
+    ticketNumber: String(row.ticket_number ?? row.ticketNumber ?? row.id ?? ""),
+    subject: String(row.subject ?? row.category ?? "Support"),
+    category: (row.category as Ticket["category"]) ?? "OTHER",
+    customerName: String(row.customer_name ?? row.customerName ?? row.user_id ?? "Customer"),
+    party: row.party_type === "HOST" || row.party === "HOST" ? "HOST" : "GUEST",
+    assignee: (row.assigned_admin_id ?? row.assignee) as string | undefined,
+    status: (row.status as Ticket["status"]) ?? "OPEN",
+    priority: (row.priority as Ticket["priority"]) ?? "NORMAL",
+    createdAt: String(row.created_at ?? row.createdAt ?? ""),
+    updatedAt: String(row.updated_at ?? row.updatedAt ?? ""),
+    resolvedAt: (row.resolved_at ?? row.resolvedAt) as string | undefined,
+    bookingId: (row.booking_id ?? row.bookingId) as string | undefined,
+    bookingRef: (row.booking_reference ?? row.bookingRef) as string | undefined,
+    listingId: (row.listing_id ?? row.listingId) as string | undefined,
+    reportId: (row.report_id ?? row.reportId) as string | undefined,
+    safetyIssueId: (row.safety_issue_id ?? row.safetyIssueId) as string | undefined,
+    unreadForSupport: Boolean(row.unread_for_support ?? row.unreadForSupport),
+    lastMessagePreview: (row.last_message_preview ?? row.lastMessagePreview) as
+      | string
+      | undefined,
+  };
+}
+
+/** Stays support tickets. Returns unavailable when the API is not connected. */
+export async function fetchTickets(): Promise<TicketsResult> {
+  try {
+    const data = await apiFetch<{ items?: Record<string, unknown>[] } | Record<string, unknown>[]>(
+      "/admin/stays/support/tickets?limit=200",
+    );
+    const rows = Array.isArray(data) ? data : data.items ?? [];
+    return { items: rows.map(mapTicket), unavailable: false };
+  } catch (err) {
+    if (isNotImplemented(err)) return { items: [], unavailable: true };
+    throw err;
+  }
+}
+
+export async function fetchTicketMessages(ticketId: string): Promise<TicketMessage[]> {
+  try {
+    const data = await apiFetch<{ items?: Record<string, unknown>[] } | Record<string, unknown>[]>(
+      `/admin/stays/support/tickets/${ticketId}/messages`,
+    );
+    const rows = Array.isArray(data) ? data : data.items ?? [];
+    return rows.map((row) => ({
+      id: String(row.id ?? ""),
+      ticketId,
+      senderType: (row.sender_type ?? row.senderType ?? "USER") as TicketMessage["senderType"],
+      senderId: (row.sender_id ?? row.senderId) as string | undefined,
+      body: String(row.body ?? ""),
+      createdAt: String(row.created_at ?? row.createdAt ?? ""),
+    }));
+  } catch (err) {
+    if (isNotImplemented(err)) return [];
+    throw err;
+  }
+}
+
+export async function sendTicketMessage(ticketId: string, body: string) {
+  return apiFetch(`/admin/stays/support/tickets/${ticketId}/messages`, {
+    method: "POST",
+    body: JSON.stringify({ body }),
+  });
+}
+
+export async function patchTicket(
+  ticketId: string,
+  patch: { status?: string; priority?: string; assigned_admin_id?: string | null },
+) {
+  return apiFetch(`/admin/stays/support/tickets/${ticketId}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export type ReportsResult = { items: SafetyReport[]; unavailable: boolean };
+
+export async function fetchReports(): Promise<ReportsResult> {
+  try {
+    const data = await apiFetch<{ items?: Record<string, unknown>[] } | Record<string, unknown>[]>(
+      "/admin/stays/reports?limit=200",
+    );
+    const rows = Array.isArray(data) ? data : data.items ?? [];
+    return {
+      items: rows.map((row) => ({
+        id: String(row.id ?? ""),
+        kind: (row.kind ?? row.action ?? "conversation_reported") as SafetyReport["kind"],
+        reason: (row.reason ??
+          (row.metadata as { reason?: string } | undefined)?.reason) as string | undefined,
+        category: (row.category ??
+          (row.metadata as { category?: string } | undefined)?.category) as string | undefined,
+        reporterId: (row.actor_user_id ?? row.reporter_id ?? row.reporterId) as string | undefined,
+        conversationId: (row.conversation_id ?? row.conversationId) as string | undefined,
+        bookingId: (row.booking_id ?? row.bookingId) as string | undefined,
+        listingId: (row.listing_id ?? row.listingId) as string | undefined,
+        supportTicketId: (row.support_ticket_id ?? row.supportTicketId) as string | undefined,
+        createdAt: String(row.created_at ?? row.createdAt ?? ""),
+        status: (row.status as string | undefined) ?? "open",
+      })),
+      unavailable: false,
+    };
+  } catch (err) {
+    if (isNotImplemented(err)) return { items: [], unavailable: true };
+    throw err;
+  }
 }
 
 export async function fetchRiskFlags(): Promise<RiskFlag[]> {
