@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, Suspense } from "react";
+import { useCallback, useEffect, useMemo, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ShieldAlert, X } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
@@ -10,19 +10,30 @@ import { StatusBadge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { FilterTabs, SearchInput } from "@/components/ui/toolbar";
 import {
+  fetchReportActivity,
+  fetchReportConversation,
   fetchReportDetail,
   fetchReports,
   patchReportStatus,
   type ReportsResult,
 } from "@/lib/api/stays-admin";
-import { useAsyncData } from "@/lib/hooks/use-async-data";
 import { formatDateTime } from "@/lib/utils";
-import type { SafetyReport } from "@/lib/types";
+import type {
+  InvestigationMessage,
+  SafetyReport,
+  SupportActivityItem,
+} from "@/lib/types";
 
-type Filter = "all" | SafetyReport["kind"];
+type KindFilter = "all" | "conversation_reported" | "safety_issue";
 type TrustStatus = "OPEN" | "REVIEWED" | "ESCALATED" | "DISMISSED";
+type StatusFilter = "all" | TrustStatus;
 
+const PAGE_SIZE = 50;
 const STATUS_ACTIONS: TrustStatus[] = ["OPEN", "REVIEWED", "ESCALATED", "DISMISSED"];
+
+function formatActivityAction(action: string) {
+  return action.replace(/_/g, " ");
+}
 
 export default function ReportsPage() {
   return (
@@ -35,64 +46,156 @@ export default function ReportsPage() {
 function ReportsPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [filter, setFilter] = useState<Filter>("all");
-  const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
+
+  const kind = (searchParams.get("kind") as KindFilter | null) ?? "all";
+  const status = (searchParams.get("status") as StatusFilter | null) ?? "all";
+  const offset = Math.max(Number(searchParams.get("offset") ?? "0") || 0, 0);
+  const q = searchParams.get("q") ?? "";
+
+  const [searchInput, setSearchInput] = useState(q);
+  const [data, setData] = useState<ReportsResult>({
+    items: [],
+    total: 0,
+    limit: PAGE_SIZE,
+    offset: 0,
+    hasMore: false,
+  });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<SafetyReport | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [lightbox, setLightbox] = useState<{ label: string; url: string } | null>(
-    null,
-  );
-  const { data, loading, error, reload } = useAsyncData<ReportsResult>(
-    fetchReports,
-    [],
-    { items: [] },
+  const [lightbox, setLightbox] = useState<{ label: string; url: string } | null>(null);
+  const [transcript, setTranscript] = useState<InvestigationMessage[]>([]);
+  const [transcriptCursor, setTranscriptCursor] = useState<number | null>(null);
+  const [transcriptHasMore, setTranscriptHasMore] = useState(false);
+  const [transcriptLoading, setTranscriptLoading] = useState(false);
+  const [transcriptError, setTranscriptError] = useState<string | null>(null);
+  const [activity, setActivity] = useState<SupportActivityItem[]>([]);
+
+  const syncUrl = useCallback(
+    (next: {
+      kind?: KindFilter;
+      status?: StatusFilter;
+      offset?: number;
+      q?: string;
+    }) => {
+      const params = new URLSearchParams();
+      const nextKind = next.kind ?? kind;
+      const nextStatus = next.status ?? status;
+      const nextOffset = next.offset ?? offset;
+      const nextQ = next.q ?? q;
+      if (nextKind !== "all") params.set("kind", nextKind);
+      if (nextStatus !== "all") params.set("status", nextStatus);
+      if (nextOffset > 0) params.set("offset", String(nextOffset));
+      if (nextQ.trim()) params.set("q", nextQ.trim());
+      const qs = params.toString();
+      router.replace(qs ? `/reports?${qs}` : "/reports");
+    },
+    [kind, status, offset, q, router],
   );
 
-  const items = data?.items ?? [];
+  const loadReports = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const next = await fetchReports({
+        limit: PAGE_SIZE,
+        offset,
+        kind: kind === "all" ? undefined : kind,
+        status: status === "all" ? undefined : status,
+        search: q.trim() || undefined,
+      });
+      setData(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load reports.");
+    } finally {
+      setLoading(false);
+    }
+  }, [kind, status, offset, q]);
 
   useEffect(() => {
-    setQuery(searchParams.get("q") ?? "");
-  }, [searchParams]);
+    void loadReports();
+  }, [loadReports]);
 
   useEffect(() => {
-    const q = (searchParams.get("q") ?? "").toLowerCase();
-    if (!q || items.length === 0) return;
-    const match = items.find(
+    setSearchInput(q);
+  }, [q]);
+
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      if (searchInput === q) return;
+      syncUrl({ q: searchInput, offset: 0 });
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [searchInput, q, syncUrl]);
+
+  useEffect(() => {
+    const needle = q.trim().toLowerCase();
+    if (!needle || data.items.length === 0 || selected) return;
+    const match = data.items.find(
       (r) =>
-        r.id.toLowerCase() === q ||
-        r.id.toLowerCase().includes(q) ||
-        (r.reason ?? "").toLowerCase().includes(q) ||
-        (r.category ?? "").toLowerCase().includes(q) ||
-        (r.ticket?.ticketNumber ?? "").toLowerCase().includes(q),
+        r.id.toLowerCase() === needle ||
+        r.id.toLowerCase().includes(needle) ||
+        (r.reason ?? "").toLowerCase().includes(needle) ||
+        (r.category ?? "").toLowerCase().includes(needle) ||
+        (r.ticket?.ticketNumber ?? "").toLowerCase().includes(needle),
     );
     if (match) void openReport(match);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, searchParams]);
+  }, [data.items, q]);
 
-  const counts = useMemo(() => {
-    const c: Record<string, number> = { all: items.length };
-    for (const r of items) c[r.kind] = (c[r.kind] ?? 0) + 1;
-    return c;
-  }, [items]);
+  const pageLabel = useMemo(() => {
+    if (data.total === 0) return "0 reports";
+    const from = data.offset + 1;
+    const to = Math.min(data.offset + data.items.length, data.total);
+    return `${from}–${to} of ${data.total}`;
+  }, [data]);
 
-  const filtered = items.filter((r) => {
-    const match = filter === "all" || r.kind === filter;
-    const q = query.toLowerCase();
-    return (
-      match &&
-      (r.id.toLowerCase().includes(q) ||
-        (r.reason ?? "").toLowerCase().includes(q) ||
-        (r.category ?? "").toLowerCase().includes(q) ||
-        (r.reporter?.name ?? "").toLowerCase().includes(q) ||
-        (r.ticket?.ticketNumber ?? "").toLowerCase().includes(q))
-    );
-  });
+  async function loadTranscript(
+    report: SafetyReport,
+    beforeSequence?: number,
+    append = false,
+  ) {
+    if (
+      report.kind !== "conversation_reported" &&
+      report.kind !== "safety_issue"
+    ) {
+      return;
+    }
+    setTranscriptLoading(true);
+    setTranscriptError(null);
+    try {
+      const page = await fetchReportConversation(report.id, report.kind, {
+        limit: 50,
+        beforeSequence,
+      });
+      setTranscript((prev) => (append ? [...page.items, ...prev] : page.items));
+      setTranscriptCursor(page.nextCursor?.beforeSequence ?? null);
+      setTranscriptHasMore(page.hasMore);
+    } catch (err) {
+      setTranscriptError(
+        err instanceof Error ? err.message : "Unable to load conversation",
+      );
+      if (!append) {
+        setTranscript([]);
+        setTranscriptCursor(null);
+        setTranscriptHasMore(false);
+      }
+    } finally {
+      setTranscriptLoading(false);
+    }
+  }
 
   async function openReport(report: SafetyReport) {
     setSelected(report);
     setActionError(null);
     setLightbox(null);
+    setTranscript([]);
+    setTranscriptCursor(null);
+    setTranscriptHasMore(false);
+    setTranscriptError(null);
+    setActivity([]);
     if (
       report.kind !== "conversation_reported" &&
       report.kind !== "safety_issue"
@@ -103,6 +206,12 @@ function ReportsPageInner() {
     try {
       const detail = await fetchReportDetail(report.id, report.kind);
       setSelected(detail);
+      const activityPage = await fetchReportActivity(report.id, report.kind, {
+        limit: 50,
+        offset: 0,
+      });
+      setActivity(activityPage.items);
+      await loadTranscript(detail);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Failed to load report detail");
     } finally {
@@ -110,7 +219,7 @@ function ReportsPageInner() {
     }
   }
 
-  async function changeStatus(status: TrustStatus) {
+  async function changeStatus(nextStatus: TrustStatus) {
     if (!selected) return;
     if (
       selected.kind !== "conversation_reported" &&
@@ -120,9 +229,14 @@ function ReportsPageInner() {
     }
     setActionError(null);
     try {
-      const next = await patchReportStatus(selected.id, selected.kind, status);
+      const next = await patchReportStatus(selected.id, selected.kind, nextStatus);
       setSelected(next);
-      await reload();
+      await loadReports();
+      const activityPage = await fetchReportActivity(selected.id, selected.kind, {
+        limit: 50,
+        offset: 0,
+      });
+      setActivity(activityPage.items);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Failed to update status");
     }
@@ -139,29 +253,39 @@ function ReportsPageInner() {
       {error && (
         <div className="mb-4 flex items-center justify-between gap-3 rounded-md border border-nexa-danger/30 bg-nexa-danger-soft px-3 py-2 text-sm text-nexa-danger">
           <p>Unable to load reports. {error}</p>
-          <Button size="sm" variant="outline" onClick={() => void reload()}>
+          <Button size="sm" variant="outline" onClick={() => void loadReports()}>
             Retry
           </Button>
         </div>
       )}
 
-      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <FilterTabs<Filter>
-          value={filter}
-          onChange={setFilter}
+      <div className="mb-3">
+        <FilterTabs<StatusFilter>
+          value={status}
+          onChange={(value) => syncUrl({ status: value, offset: 0 })}
           options={[
-            { value: "all", label: "All", count: counts.all },
-            {
-              value: "conversation_reported",
-              label: "Conversation",
-              count: counts.conversation_reported ?? 0,
-            },
-            { value: "safety_issue", label: "Safety", count: counts.safety_issue ?? 0 },
+            { value: "all", label: "All statuses" },
+            { value: "OPEN", label: "Open" },
+            { value: "REVIEWED", label: "Reviewed" },
+            { value: "ESCALATED", label: "Escalated" },
+            { value: "DISMISSED", label: "Dismissed" },
+          ]}
+        />
+      </div>
+
+      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <FilterTabs<KindFilter>
+          value={kind}
+          onChange={(value) => syncUrl({ kind: value, offset: 0 })}
+          options={[
+            { value: "all", label: "All", count: data.total },
+            { value: "conversation_reported", label: "Conversation" },
+            { value: "safety_issue", label: "Safety" },
           ]}
         />
         <SearchInput
-          value={query}
-          onChange={setQuery}
+          value={searchInput}
+          onChange={setSearchInput}
           placeholder="Search reports…"
           className="lg:w-72"
         />
@@ -183,7 +307,7 @@ function ReportsPageInner() {
               </tr>
             </THead>
             <tbody>
-              {filtered.map((r) => (
+              {data.items.map((r) => (
                 <TR key={r.id} className="cursor-pointer" onClick={() => void openReport(r)}>
                   <TD>{r.kind.replace(/_/g, " ")}</TD>
                   <TD className="text-nexa-ink-3">{r.reason ?? r.category ?? "—"}</TD>
@@ -200,10 +324,33 @@ function ReportsPageInner() {
             </tbody>
           </Table>
         )}
-        {!loading && !error && filtered.length === 0 && (
+        {!loading && !error && data.items.length === 0 && (
           <div className="py-12 text-center">
             <ShieldAlert className="mx-auto h-10 w-10 text-nexa-ink-4" />
             <p className="mt-3 text-sm text-nexa-ink-4">No reports found.</p>
+          </div>
+        )}
+        {!loading && data.items.length > 0 && (
+          <div className="flex items-center justify-between gap-3 border-t border-nexa-line px-4 py-3 text-xs text-nexa-ink-4">
+            <span>{pageLabel}</span>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={offset <= 0 || loading}
+                onClick={() => syncUrl({ offset: Math.max(0, offset - PAGE_SIZE) })}
+              >
+                Previous
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!data.hasMore || loading}
+                onClick={() => syncUrl({ offset: offset + PAGE_SIZE })}
+              >
+                Next
+              </Button>
+            </div>
           </div>
         )}
       </Card>
@@ -262,12 +409,6 @@ function ReportsPageInner() {
                 <dd>{selected.listing?.title ?? selected.listingId ?? "—"}</dd>
               </div>
               <div>
-                <dt className="text-xs text-nexa-ink-4">Conversation</dt>
-                <dd className="break-all font-mono text-xs">
-                  {selected.conversationId ?? "—"}
-                </dd>
-              </div>
-              <div>
                 <dt className="text-xs text-nexa-ink-4">Linked ticket</dt>
                 <dd>
                   {selected.ticket?.ticketNumber ??
@@ -309,19 +450,107 @@ function ReportsPageInner() {
               </div>
             )}
 
+            {(selected.kind === "conversation_reported" ||
+              selected.kind === "safety_issue") && (
+              <div className="mt-5">
+                <p className="text-xs font-semibold uppercase text-nexa-ink-4">
+                  Reported conversation
+                </p>
+                <p className="mt-1 text-[11px] text-nexa-ink-4">
+                  Read-only investigation transcript (source thread only).
+                </p>
+                {transcriptError && (
+                  <p className="mt-2 text-xs text-nexa-danger">{transcriptError}</p>
+                )}
+                <div className="mt-2 max-h-72 space-y-2 overflow-y-auto rounded-md border border-nexa-line p-2">
+                  {transcriptLoading && transcript.length === 0 ? (
+                    <p className="text-xs text-nexa-ink-4">Loading transcript…</p>
+                  ) : transcript.length === 0 ? (
+                    <p className="text-xs text-nexa-ink-4">No messages available.</p>
+                  ) : (
+                    transcript.map((m) => (
+                      <div key={m.id} className="rounded-md bg-nexa-bg-2 px-2 py-1.5 text-xs">
+                        <p className="font-semibold uppercase text-nexa-ink-4">
+                          {m.senderRole}
+                        </p>
+                        <p className="mt-0.5 whitespace-pre-wrap text-nexa-ink">{m.body}</p>
+                        {m.createdAt && (
+                          <p className="mt-0.5 text-[10px] text-nexa-ink-4">
+                            {formatDateTime(m.createdAt)}
+                          </p>
+                        )}
+                        {m.attachments.length > 0 && (
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {m.attachments.map((att) => (
+                              <button
+                                key={att.id}
+                                type="button"
+                                className="text-[10px] text-nexa-primary underline"
+                                onClick={() =>
+                                  setLightbox({
+                                    label: att.filename || "Attachment",
+                                    url: att.url,
+                                  })
+                                }
+                              >
+                                Attachment
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+                {transcriptHasMore && transcriptCursor != null && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="mt-2"
+                    disabled={transcriptLoading}
+                    onClick={() =>
+                      void loadTranscript(selected, transcriptCursor, true)
+                    }
+                  >
+                    {transcriptLoading ? "Loading…" : "Load earlier messages"}
+                  </Button>
+                )}
+              </div>
+            )}
+
+            <div className="mt-5">
+              <p className="text-xs font-semibold uppercase text-nexa-ink-4">Activity</p>
+              <div className="mt-2 space-y-2">
+                {activity.length === 0 ? (
+                  <p className="text-xs text-nexa-ink-4">No activity yet.</p>
+                ) : (
+                  activity.map((a) => (
+                    <div key={a.id} className="text-xs text-nexa-ink-3">
+                      <span className="font-medium text-nexa-ink">
+                        {formatActivityAction(a.action)}
+                      </span>
+                      {a.createdAt ? ` · ${formatDateTime(a.createdAt)}` : ""}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
             <div className="mt-5">
               <p className="text-xs font-semibold uppercase text-nexa-ink-4">Status actions</p>
               <div className="mt-2 flex flex-wrap gap-1">
-                {STATUS_ACTIONS.map((status) => (
+                {STATUS_ACTIONS.map((nextStatus) => (
                   <Button
-                    key={status}
+                    key={nextStatus}
                     size="sm"
                     variant={
-                      (selected.status ?? "").toUpperCase() === status ? "soft" : "outline"
+                      (selected.status ?? "").toUpperCase() === nextStatus
+                        ? "soft"
+                        : "outline"
                     }
-                    onClick={() => void changeStatus(status)}
+                    onClick={() => void changeStatus(nextStatus)}
                   >
-                    {status}
+                    {nextStatus}
                   </Button>
                 ))}
               </div>

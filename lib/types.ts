@@ -255,6 +255,35 @@ export interface TicketMessage {
   createdAt: string;
 }
 
+/** Internal admin-only note — never enters customer messages/SSE. */
+export interface TicketNote {
+  id: string;
+  ticketId: string;
+  authorAdminId: string;
+  body: string;
+  createdAt: string;
+}
+
+/** Metadata-only audit row for ticket/report timelines. */
+export interface SupportActivityItem {
+  id: string;
+  action: string;
+  actorId?: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface InvestigationMessage {
+  id: string;
+  senderId?: string | null;
+  senderRole: "GUEST" | "HOST" | "UNKNOWN";
+  type?: string;
+  body: string;
+  conversationSequence: number;
+  createdAt: string;
+  attachments: TrustEvidence[];
+}
+
 export interface TicketLinkedReport {
   id: string;
   reason?: string | null;

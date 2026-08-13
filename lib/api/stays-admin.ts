@@ -5,6 +5,7 @@ import type {
   BookingDetail,
   BookingOccupant,
   HostApplication,
+  InvestigationMessage,
   KycRecord,
   LedgerEntry,
   Listing,
@@ -12,9 +13,11 @@ import type {
   Review,
   RiskFlag,
   SafetyReport,
+  SupportActivityItem,
   Ticket,
   TicketDetail,
   TicketMessage,
+  TicketNote,
 } from "../types";
 import { apiConfig } from "./config";
 import { apiFetch, getAccessToken, isNotImplemented } from "./client";
@@ -1030,6 +1033,8 @@ export type TicketsQuery = {
   priority?: string;
   category?: string;
   assignedAdminId?: string;
+  /** When true, only tickets with assigned_admin_id IS NULL. Conflicts with assignedAdminId. */
+  unassigned?: boolean;
   requesterUserId?: string;
   bookingId?: string;
   listingId?: string;
@@ -1078,7 +1083,10 @@ function ticketsQueryString(query: TicketsQuery): string {
   if (query.status) params.set("status", query.status);
   if (query.priority) params.set("priority", query.priority);
   if (query.category) params.set("category", query.category);
-  if (query.assignedAdminId) params.set("assignedAdminId", query.assignedAdminId);
+  if (query.unassigned === true) params.set("unassigned", "true");
+  else if (query.assignedAdminId) {
+    params.set("assignedAdminId", query.assignedAdminId);
+  }
   if (query.requesterUserId) params.set("requesterUserId", query.requesterUserId);
   if (query.bookingId) params.set("bookingId", query.bookingId);
   if (query.listingId) params.set("listingId", query.listingId);
@@ -1187,7 +1195,212 @@ export async function patchTicket(
   });
 }
 
-export type ReportsResult = { items: SafetyReport[] };
+function mapTicketNote(row: Record<string, unknown>, ticketId: string): TicketNote {
+  return {
+    id: String(row.id ?? ""),
+    ticketId: String(row.ticket_id ?? row.ticketId ?? ticketId),
+    authorAdminId: String(row.author_admin_id ?? row.authorAdminId ?? ""),
+    body: String(row.body ?? ""),
+    createdAt: String(row.created_at ?? row.createdAt ?? ""),
+  };
+}
+
+export async function fetchTicketNotes(
+  ticketId: string,
+  limit = 100,
+): Promise<TicketNote[]> {
+  const params = new URLSearchParams();
+  params.set("limit", String(Math.min(Math.max(limit, 1), 200)));
+  const data = await apiFetch<{ items?: Record<string, unknown>[] }>(
+    `/admin/stays/support/tickets/${encodeURIComponent(ticketId)}/notes?${params}`,
+  );
+  return (data.items ?? []).map((row) => mapTicketNote(row, ticketId));
+}
+
+export async function createTicketNote(
+  ticketId: string,
+  body: string,
+): Promise<TicketNote> {
+  const row = await apiFetch<Record<string, unknown>>(
+    `/admin/stays/support/tickets/${encodeURIComponent(ticketId)}/notes`,
+    {
+      method: "POST",
+      body: JSON.stringify({ body }),
+    },
+  );
+  return mapTicketNote(row, ticketId);
+}
+
+function mapActivityItem(row: Record<string, unknown>): SupportActivityItem {
+  const metadata =
+    row.metadata && typeof row.metadata === "object"
+      ? (row.metadata as Record<string, unknown>)
+      : {};
+  return {
+    id: String(row.id ?? ""),
+    action: String(row.action ?? ""),
+    actorId: (row.actor_id ?? row.actorId) as string | null | undefined,
+    metadata,
+    createdAt: String(row.created_at ?? row.createdAt ?? ""),
+  };
+}
+
+export type ActivityResult = {
+  items: SupportActivityItem[];
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+};
+
+export async function fetchTicketActivity(
+  ticketId: string,
+  query: { limit?: number; offset?: number } = {},
+): Promise<ActivityResult> {
+  const params = new URLSearchParams();
+  params.set("limit", String(Math.min(Math.max(query.limit ?? 50, 1), 100)));
+  params.set("offset", String(Math.max(query.offset ?? 0, 0)));
+  const data = await apiFetch<{
+    items?: Record<string, unknown>[];
+    total?: number;
+    limit?: number;
+    offset?: number;
+    hasMore?: boolean;
+  }>(
+    `/admin/stays/support/tickets/${encodeURIComponent(ticketId)}/activity?${params}`,
+  );
+  const items = (data.items ?? []).map(mapActivityItem);
+  const limit = Number(data.limit ?? query.limit ?? 50);
+  const offset = Number(data.offset ?? query.offset ?? 0);
+  const total = Number(data.total ?? items.length);
+  return {
+    items,
+    total,
+    limit,
+    offset,
+    hasMore: Boolean(data.hasMore ?? offset + items.length < total),
+  };
+}
+
+export async function fetchReportActivity(
+  reportId: string,
+  kind: "conversation_reported" | "safety_issue",
+  query: { limit?: number; offset?: number } = {},
+): Promise<ActivityResult> {
+  const params = new URLSearchParams();
+  params.set("kind", kind);
+  params.set("limit", String(Math.min(Math.max(query.limit ?? 50, 1), 100)));
+  params.set("offset", String(Math.max(query.offset ?? 0, 0)));
+  const data = await apiFetch<{
+    items?: Record<string, unknown>[];
+    total?: number;
+    limit?: number;
+    offset?: number;
+    hasMore?: boolean;
+  }>(`/admin/stays/reports/${encodeURIComponent(reportId)}/activity?${params}`);
+  const items = (data.items ?? []).map(mapActivityItem);
+  const limit = Number(data.limit ?? query.limit ?? 50);
+  const offset = Number(data.offset ?? query.offset ?? 0);
+  const total = Number(data.total ?? items.length);
+  return {
+    items,
+    total,
+    limit,
+    offset,
+    hasMore: Boolean(data.hasMore ?? offset + items.length < total),
+  };
+}
+
+export type InvestigationConversationResult = {
+  conversation: {
+    id: string;
+    bookingId?: string | null;
+    listingId?: string | null;
+    type?: string;
+  } | null;
+  items: InvestigationMessage[];
+  nextCursor: { beforeSequence: number } | null;
+  hasMore: boolean;
+};
+
+export async function fetchReportConversation(
+  reportId: string,
+  kind: "conversation_reported" | "safety_issue",
+  query: { limit?: number; beforeSequence?: number } = {},
+): Promise<InvestigationConversationResult> {
+  const params = new URLSearchParams();
+  params.set("kind", kind);
+  params.set("limit", String(Math.min(Math.max(query.limit ?? 50, 1), 50)));
+  if (query.beforeSequence != null) {
+    params.set("before_sequence", String(query.beforeSequence));
+  }
+  const data = await apiFetch<{
+    conversation?: Record<string, unknown> | null;
+    items?: Record<string, unknown>[];
+    next_cursor?: { before_sequence?: number } | null;
+    has_more?: boolean;
+  }>(
+    `/admin/stays/reports/${encodeURIComponent(reportId)}/conversation?${params}`,
+  );
+  const conv = asRecord(data.conversation);
+  const items = (data.items ?? []).map((row): InvestigationMessage => {
+    const atts = Array.isArray(row.attachments)
+      ? (row.attachments as Record<string, unknown>[]).map(mapEvidence)
+      : [];
+    const role = String(row.sender_role ?? row.senderRole ?? "UNKNOWN").toUpperCase();
+    return {
+      id: String(row.id ?? ""),
+      senderId: (row.sender_id ?? row.senderId) as string | null | undefined,
+      senderRole:
+        role === "GUEST" || role === "HOST" ? role : "UNKNOWN",
+      type: row.type as string | undefined,
+      body: String(row.body ?? ""),
+      conversationSequence: Number(
+        row.conversation_sequence ?? row.conversationSequence ?? 0,
+      ),
+      createdAt: String(row.created_at ?? row.createdAt ?? ""),
+      attachments: atts,
+    };
+  });
+  const cursor = data.next_cursor;
+  return {
+    conversation: conv
+      ? {
+          id: String(conv.id ?? ""),
+          bookingId: (conv.booking_id ?? conv.bookingId) as string | null | undefined,
+          listingId: (conv.listing_id ?? conv.listingId) as string | null | undefined,
+          type: conv.type as string | undefined,
+        }
+      : null,
+    items,
+    nextCursor:
+      cursor?.before_sequence != null
+        ? { beforeSequence: Number(cursor.before_sequence) }
+        : null,
+    hasMore: Boolean(data.has_more ?? !!cursor),
+  };
+}
+
+export type ReportsQuery = {
+  limit?: number;
+  offset?: number;
+  status?: string;
+  kind?: "conversation_reported" | "safety_issue";
+  category?: string;
+  reporterUserId?: string;
+  reportedUserId?: string;
+  bookingId?: string;
+  listingId?: string;
+  search?: string;
+};
+
+export type ReportsResult = {
+  items: SafetyReport[];
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+};
 
 function mapPerson(
   value: unknown,
@@ -1263,12 +1476,40 @@ function mapSafetyReport(row: Record<string, unknown>, includeEvidence = false):
   };
 }
 
-export async function fetchReports(): Promise<ReportsResult> {
-  const data = await apiFetch<{ items?: Record<string, unknown>[] } | Record<string, unknown>[]>(
-    "/admin/stays/reports?limit=200",
-  );
-  const rows = Array.isArray(data) ? data : data.items ?? [];
-  return { items: rows.map((row) => mapSafetyReport(row, false)) };
+function reportsQueryString(query: ReportsQuery): string {
+  const params = new URLSearchParams();
+  params.set("limit", String(Math.min(Math.max(query.limit ?? 50, 1), 100)));
+  params.set("offset", String(Math.max(query.offset ?? 0, 0)));
+  if (query.status) params.set("status", query.status);
+  if (query.kind) params.set("kind", query.kind);
+  if (query.category) params.set("category", query.category);
+  if (query.reporterUserId) params.set("reporterUserId", query.reporterUserId);
+  if (query.reportedUserId) params.set("reportedUserId", query.reportedUserId);
+  if (query.bookingId) params.set("bookingId", query.bookingId);
+  if (query.listingId) params.set("listingId", query.listingId);
+  if (query.search?.trim()) params.set("search", query.search.trim());
+  return params.toString();
+}
+
+export async function fetchReports(query: ReportsQuery = {}): Promise<ReportsResult> {
+  const data = await apiFetch<{
+    items?: Record<string, unknown>[];
+    total?: number;
+    limit?: number;
+    offset?: number;
+    hasMore?: boolean;
+  }>(`/admin/stays/reports?${reportsQueryString(query)}`);
+  const items = (data.items ?? []).map((row) => mapSafetyReport(row, false));
+  const limit = Number(data.limit ?? query.limit ?? 50);
+  const offset = Number(data.offset ?? query.offset ?? 0);
+  const total = Number(data.total ?? items.length);
+  return {
+    items,
+    total,
+    limit,
+    offset,
+    hasMore: Boolean(data.hasMore ?? offset + items.length < total),
+  };
 }
 
 export async function fetchReportDetail(

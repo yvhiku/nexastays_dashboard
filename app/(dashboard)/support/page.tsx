@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { LifeBuoy, Send, UserCheck } from "lucide-react";
+import { LifeBuoy, Send, UserCheck, UserX } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,12 +11,15 @@ import { StatusBadge } from "@/components/ui/badge";
 import { FilterTabs, SearchInput } from "@/components/ui/toolbar";
 import { useAuth } from "@/components/providers/auth-provider";
 import {
+  createTicketNote,
   fetchBookingDetail,
   fetchTicket,
-  fetchTickets,
+  fetchTicketActivity,
   fetchTicketMessages,
-  sendTicketMessage,
+  fetchTicketNotes,
+  fetchTickets,
   patchTicket,
+  sendTicketMessage,
   ticketContextHref,
   type TicketsResult,
 } from "@/lib/api/stays-admin";
@@ -24,14 +27,17 @@ import { ApiError } from "@/lib/api/client";
 import { formatDateTime, cn } from "@/lib/utils";
 import type {
   BookingDetail,
+  SupportActivityItem,
   Ticket,
   TicketDetail,
   TicketMessage,
+  TicketNote,
   TicketPriority,
   TicketStatus,
 } from "@/lib/types";
 
 type Filter = "all" | TicketStatus;
+type AssignmentScope = "all" | "mine" | "unassigned";
 
 const PAGE_SIZE = 50;
 
@@ -57,6 +63,10 @@ function statusQuery(filter: Filter): string | undefined {
   return filter;
 }
 
+function formatActivityAction(action: string) {
+  return action.replace(/_/g, " ");
+}
+
 export default function SupportPage() {
   return (
     <Suspense fallback={<p className="py-10 text-center text-sm text-nexa-ink-4">Loading…</p>}>
@@ -67,7 +77,9 @@ export default function SupportPage() {
 
 function SupportPageInner() {
   const searchParams = useSearchParams();
+  const { session } = useAuth();
   const [filter, setFilter] = useState<Filter>("OPEN");
+  const [assignmentScope, setAssignmentScope] = useState<AssignmentScope>("all");
   const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
   const [searchInput, setSearchInput] = useState(() => searchParams.get("q") ?? "");
   const [offset, setOffset] = useState(0);
@@ -95,6 +107,11 @@ function SupportPageInner() {
         offset,
         status: statusQuery(filter),
         search: query.trim() || undefined,
+        unassigned: assignmentScope === "unassigned" ? true : undefined,
+        assignedAdminId:
+          assignmentScope === "mine" && session?.userId
+            ? session.userId
+            : undefined,
       });
       setData(next);
     } catch (err) {
@@ -102,7 +119,7 @@ function SupportPageInner() {
     } finally {
       setLoading(false);
     }
-  }, [filter, offset, query]);
+  }, [filter, offset, query, assignmentScope, session?.userId]);
 
   useEffect(() => {
     void loadTickets();
@@ -199,6 +216,21 @@ function SupportPageInner() {
         </CardContent>
       </Card>
 
+      <div className="mb-3">
+        <FilterTabs<AssignmentScope>
+          value={assignmentScope}
+          onChange={(value) => {
+            setOffset(0);
+            setAssignmentScope(value);
+          }}
+          options={[
+            { value: "all", label: "All" },
+            { value: "mine", label: "My" },
+            { value: "unassigned", label: "Unassigned" },
+          ]}
+        />
+      </div>
+
       <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <FilterTabs<Filter>
           value={filter}
@@ -213,7 +245,7 @@ function SupportPageInner() {
             { value: "ESCALATED", label: "Escalated" },
             { value: "RESOLVED", label: "Resolved" },
             { value: "CLOSED", label: "Closed" },
-            { value: "all", label: "All", count: data.total },
+            { value: "all", label: "All statuses", count: data.total },
           ]}
         />
         <SearchInput
@@ -258,6 +290,7 @@ function SupportPageInner() {
                           {t.customerName}
                           {t.party === "HOST" ? " · Host" : " · Guest"}
                           {t.bookingRef ? ` · ${t.bookingRef}` : ""}
+                          {t.assignee ? " · Assigned" : " · Unassigned"}
                           {t.lastMessagePreview ? ` · ${t.lastMessagePreview}` : ""}
                         </p>
                       </div>
@@ -323,6 +356,10 @@ function SupportWorkspace({
   const { session } = useAuth();
   const [detail, setDetail] = useState<TicketDetail | null>(null);
   const [messages, setMessages] = useState<TicketMessage[]>([]);
+  const [notes, setNotes] = useState<TicketNote[]>([]);
+  const [activity, setActivity] = useState<SupportActivityItem[]>([]);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [noteSaving, setNoteSaving] = useState(false);
   const [booking, setBooking] = useState<BookingDetail | null>(null);
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
@@ -334,8 +371,11 @@ function SupportWorkspace({
     const ticketId = ticket?.id ?? null;
     if (ticketIdRef.current !== ticketId) {
       setReply("");
+      setNoteDraft("");
       setStatusError(null);
       setMessages([]);
+      setNotes([]);
+      setActivity([]);
       setBooking(null);
       setDetail(null);
       ticketIdRef.current = ticketId;
@@ -365,6 +405,20 @@ function SupportWorkspace({
         .catch(() => {
           if (!cancelled) setDetail(null);
         });
+      void fetchTicketNotes(ticket.id)
+        .then((next) => {
+          if (!cancelled) setNotes(next);
+        })
+        .catch(() => {
+          if (!cancelled) setNotes([]);
+        });
+      void fetchTicketActivity(ticket.id, { limit: 50, offset: 0 })
+        .then((next) => {
+          if (!cancelled) setActivity(next.items);
+        })
+        .catch(() => {
+          if (!cancelled) setActivity([]);
+        });
     };
     load();
     const interval = setInterval(load, 8000);
@@ -383,6 +437,16 @@ function SupportWorkspace({
       setDetail(next);
     } catch {
       // keep last known detail
+    }
+  }
+
+  async function refreshActivity() {
+    if (!ticket || ticket.id === "lookup") return;
+    try {
+      const next = await fetchTicketActivity(ticket.id, { limit: 50, offset: 0 });
+      setActivity(next.items);
+    } catch {
+      // keep last known activity
     }
   }
 
@@ -418,6 +482,7 @@ function SupportWorkspace({
       await patchTicket(ticket.id, { status });
       await refreshDetail();
       await onChanged();
+      await refreshActivity();
     } catch (err) {
       setStatusError(err instanceof Error ? err.message : "Failed to update status");
     } finally {
@@ -429,7 +494,9 @@ function SupportWorkspace({
     if (!ticket || ticket.id === "lookup") return;
     try {
       await patchTicket(ticket.id, { priority });
+      await refreshDetail();
       await onChanged();
+      await refreshActivity();
     } catch (err) {
       setStatusError(err instanceof Error ? err.message : "Failed to update priority");
     }
@@ -444,9 +511,39 @@ function SupportWorkspace({
     }
     try {
       await patchTicket(ticket.id, { assigned_admin_id: adminId });
+      await refreshDetail();
       await onChanged();
+      await refreshActivity();
     } catch (err) {
       setStatusError(err instanceof Error ? err.message : "Failed to assign");
+    }
+  }
+
+  async function unassign() {
+    if (!ticket || ticket.id === "lookup") return;
+    try {
+      await patchTicket(ticket.id, { assigned_admin_id: null });
+      await refreshDetail();
+      await onChanged();
+      await refreshActivity();
+    } catch (err) {
+      setStatusError(err instanceof Error ? err.message : "Failed to unassign");
+    }
+  }
+
+  async function saveNote() {
+    if (!ticket || ticket.id === "lookup" || !noteDraft.trim()) return;
+    setNoteSaving(true);
+    setStatusError(null);
+    try {
+      await createTicketNote(ticket.id, noteDraft.trim());
+      setNoteDraft("");
+      setNotes(await fetchTicketNotes(ticket.id));
+      await refreshActivity();
+    } catch (err) {
+      setStatusError(err instanceof Error ? err.message : "Failed to add note");
+    } finally {
+      setNoteSaving(false);
     }
   }
 
@@ -522,6 +619,15 @@ function SupportWorkspace({
               <Button size="sm" variant="outline" onClick={() => void assignSelf()}>
                 <UserCheck className="h-3.5 w-3.5" />
                 Assign to me
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!live.assignee}
+                onClick={() => void unassign()}
+              >
+                <UserX className="h-3.5 w-3.5" />
+                Unassign
               </Button>
             </div>
           </>
@@ -657,6 +763,73 @@ function SupportWorkspace({
               Booking context could not be loaded for this reference.
             </p>
           )}
+
+          {ticket.id !== "lookup" && (
+            <>
+              <div className="mt-6 border-t border-nexa-line pt-4">
+                <p className="text-xs font-semibold uppercase text-nexa-ink-4">
+                  Internal notes
+                </p>
+                <p className="mt-1 text-[11px] text-nexa-ink-4">
+                  Admin-only. Never sent to the customer thread.
+                </p>
+                <div className="mt-2 space-y-2">
+                  {notes.length === 0 ? (
+                    <p className="text-xs text-nexa-ink-4">No internal notes yet.</p>
+                  ) : (
+                    notes.map((n) => (
+                      <div
+                        key={n.id}
+                        className="rounded-md border border-dashed border-nexa-line bg-nexa-bg-2 px-3 py-2"
+                      >
+                        <p className="whitespace-pre-wrap text-sm text-nexa-ink">{n.body}</p>
+                        <p className="mt-1 text-[11px] text-nexa-ink-4">
+                          {n.authorAdminId.slice(0, 8)} ·{" "}
+                          {n.createdAt ? formatDateTime(n.createdAt) : "—"}
+                        </p>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <div className="mt-2 flex gap-2">
+                  <input
+                    value={noteDraft}
+                    onChange={(e) => setNoteDraft(e.target.value)}
+                    placeholder="Add an internal note…"
+                    maxLength={5000}
+                    className="h-9 flex-1 rounded-md border border-nexa-line px-3 text-sm"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={noteSaving || !noteDraft.trim()}
+                    onClick={() => void saveNote()}
+                  >
+                    Add
+                  </Button>
+                </div>
+              </div>
+
+              <div className="mt-6 border-t border-nexa-line pt-4">
+                <p className="text-xs font-semibold uppercase text-nexa-ink-4">Activity</p>
+                <div className="mt-2 space-y-2">
+                  {activity.length === 0 ? (
+                    <p className="text-xs text-nexa-ink-4">No activity yet.</p>
+                  ) : (
+                    activity.map((a) => (
+                      <div key={a.id} className="text-xs text-nexa-ink-3">
+                        <span className="font-medium text-nexa-ink">
+                          {formatActivityAction(a.action)}
+                        </span>
+                        {a.createdAt ? ` · ${formatDateTime(a.createdAt)}` : ""}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+
           <Button variant="ghost" className="mt-4 w-full" onClick={onClose}>
             Close
           </Button>
