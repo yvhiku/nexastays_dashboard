@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge, StatusBadge } from "@/components/ui/badge";
 import { FilterTabs, SearchInput } from "@/components/ui/toolbar";
 import { HBar } from "@/components/charts/charts";
-import { fetchReviews } from "@/lib/api/stays-admin";
+import { fetchReviews, hideReview, publishReview, deleteReview } from "@/lib/api/stays-admin";
 import { useAsyncList } from "@/lib/hooks/use-async-data";
 import { RelativeTime } from "@/components/ui/relative-time";
 import type { Review } from "@/lib/types";
@@ -19,7 +19,7 @@ export default function ReviewsPage() {
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
 
-  const { data: reviews, loading, error } = useAsyncList(fetchReviews, []);
+  const { data: reviews, loading, error, reload } = useAsyncList(fetchReviews, []);
 
   const ratingDistribution = [5, 4, 3, 2, 1].map((stars) => ({
     stars,
@@ -170,7 +170,7 @@ export default function ReviewsPage() {
 
       <div className="space-y-3">
         {filtered.map((r) => (
-          <ReviewRow key={r.id} review={r} />
+          <ReviewRow key={r.id} review={r} onChanged={reload} />
         ))}
         {filtered.length === 0 && (
           <p className="py-10 text-center text-sm text-nexa-ink-4">No reviews found.</p>
@@ -180,7 +180,34 @@ export default function ReviewsPage() {
   );
 }
 
-function ReviewRow({ review }: { review: Review }) {
+function ReviewRow({
+  review,
+  onChanged,
+}: {
+  review: Review;
+  onChanged: () => Promise<void> | void;
+}) {
+  const [acting, setActing] = useState(false);
+
+  async function run(action: "hide" | "publish" | "remove") {
+    const confirmRemove =
+      action === "remove"
+        ? window.confirm(
+            "Remove this review? This is audited server-side and is not a silent delete.",
+          )
+        : true;
+    if (!confirmRemove) return;
+    setActing(true);
+    try {
+      if (action === "hide") await hideReview(review.id);
+      else if (action === "publish") await publishReview(review.id);
+      else await deleteReview(review.id);
+      await onChanged();
+    } finally {
+      setActing(false);
+    }
+  }
+
   return (
     <Card className="p-4">
       <div className="flex items-start justify-between gap-4">
@@ -208,19 +235,48 @@ function ReviewRow({ review }: { review: Review }) {
         </div>
         <div className="flex shrink-0 gap-1">
           {review.status === "flagged" && (
-            <Button variant="ghost" size="icon" title="Keep">
+            <Button
+              variant="ghost"
+              size="icon"
+              title="Publish / restore"
+              disabled={acting}
+              onClick={() => run("publish")}
+            >
               <Check className="h-4 w-4" />
             </Button>
           )}
+          {review.status === "published" && (
+            <Button
+              variant="ghost"
+              size="icon"
+              title="Hide"
+              disabled={acting}
+              onClick={() => run("hide")}
+            >
+              <Flag className="h-4 w-4" />
+            </Button>
+          )}
+          {review.status === "flagged" && (
+            <Button
+              variant="ghost"
+              size="icon"
+              title="Keep published"
+              disabled={acting}
+              onClick={() => run("publish")}
+            >
+              <Flag className="h-4 w-4" />
+            </Button>
+          )}
           {review.status !== "removed" && (
-            <>
-              <Button variant="ghost" size="icon" title="Flag">
-                <Flag className="h-4 w-4" />
-              </Button>
-              <Button variant="danger-outline" size="icon" title="Remove">
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </>
+            <Button
+              variant="danger-outline"
+              size="icon"
+              title="Remove (audited)"
+              disabled={acting}
+              onClick={() => run("remove")}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
           )}
         </div>
       </div>

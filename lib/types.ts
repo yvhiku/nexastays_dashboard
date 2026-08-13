@@ -61,6 +61,7 @@ export type ListingStatus =
   | "active"
   | "approved"
   | "pending"
+  | "draft"
   | "rejected"
   | "suspended"
   | "flagged";
@@ -74,6 +75,7 @@ export interface Listing {
   address: string;
   type: string;
   status: ListingStatus;
+  rawStatus?: string;
   pricePerNight: number;
   rating: number;
   reviewsCount: number;
@@ -120,6 +122,16 @@ export interface ListingDetail extends Listing {
   rawStatus: string;
 }
 
+export type BookingRawStatus =
+  | "INITIATED"
+  | "PAYMENT_PENDING"
+  | "CONFIRMED"
+  | "CHECKED_IN"
+  | "COMPLETED"
+  | "CANCELLED_BY_GUEST"
+  | "CANCELLED_BY_HOST"
+  | "EXPIRED";
+
 export type BookingStatus =
   | "confirmed"
   | "pending"
@@ -134,6 +146,7 @@ export interface Booking {
   guestName: string;
   hostName: string;
   listingTitle: string;
+  listingId?: string;
   city: string;
   checkIn: string;
   checkOut: string;
@@ -141,7 +154,11 @@ export interface Booking {
   guests: number;
   total: number;
   status: BookingStatus;
+  rawStatus: string;
   createdAt: string;
+  paidAt?: string | null;
+  confirmedAt?: string | null;
+  completedAt?: string | null;
   cancellationReason?: string;
 }
 
@@ -159,7 +176,6 @@ export interface BookingOccupant {
 }
 
 export interface BookingDetail extends Booking {
-  rawStatus: string;
   listingId?: string;
   subtotal?: number;
   guestFee?: number;
@@ -167,6 +183,7 @@ export interface BookingDetail extends Booking {
   payoutAmount?: number | null;
   currency?: string;
   occupants: BookingOccupant[];
+  ledger?: LedgerEntry[];
 }
 
 export interface Review {
@@ -182,20 +199,105 @@ export interface Review {
   flagReason?: string;
 }
 
-export type TicketStatus = "open" | "in_progress" | "resolved" | "escalated";
-export type TicketPriority = "low" | "medium" | "high" | "urgent";
+export type TicketCategory =
+  | "BOOKING"
+  | "PAYMENT"
+  | "REFUND"
+  | "CANCELLATION"
+  | "HOST"
+  | "GUEST"
+  | "LISTING"
+  | "KYC"
+  | "TECHNICAL"
+  | "FRAUD"
+  | "OTHER";
+
+export type TicketStatus =
+  | "OPEN"
+  | "IN_PROGRESS"
+  | "WAITING_FOR_CUSTOMER"
+  | "WAITING_FOR_HOST"
+  | "ESCALATED"
+  | "RESOLVED"
+  | "CLOSED";
+
+export type TicketPriority = "LOW" | "NORMAL" | "HIGH" | "URGENT";
 
 export interface Ticket {
   id: string;
+  ticketNumber: string;
   subject: string;
-  type: "guest_complaint" | "host_complaint" | "booking_dispute";
-  requester: string;
+  category: TicketCategory;
+  customerName: string;
+  party: "GUEST" | "HOST";
   assignee?: string;
   status: TicketStatus;
   priority: TicketPriority;
   createdAt: string;
   updatedAt: string;
+  resolvedAt?: string;
+  bookingId?: string;
   bookingRef?: string;
+  listingId?: string;
+  reportId?: string;
+  safetyIssueId?: string;
+  unreadForSupport?: boolean;
+  lastMessagePreview?: string;
+}
+
+export interface TicketMessage {
+  id: string;
+  ticketId: string;
+  senderType: "USER" | "SUPPORT_AGENT" | "SYSTEM";
+  senderId?: string;
+  body: string;
+  createdAt: string;
+}
+
+export interface PaymentRecord {
+  id: string;
+  bookingId?: string;
+  bookingRef?: string;
+  provider?: string;
+  providerIntentId?: string;
+  amount: number;
+  currency: string;
+  status: "SUCCEEDED" | "FAILED" | "PENDING" | "REFUNDED" | "CANCELLED";
+  createdAt: string;
+}
+
+export interface RefundRecord {
+  id: string;
+  bookingId?: string;
+  bookingRef?: string;
+  amount: number;
+  currency: string;
+  status: "PENDING" | "SETTLED" | "FAILED";
+  createdAt: string;
+}
+
+export interface LedgerEntry {
+  id: string;
+  bookingId: string;
+  type: "GUEST_PAYMENT" | "HOST_PAYOUT" | "PLATFORM_FEE" | "REFUND";
+  amount: number;
+  currency: string;
+  status: "PENDING" | "SETTLED" | "FAILED";
+  createdAt: string;
+}
+
+export interface SafetyReport {
+  id: string;
+  kind: "conversation_reported" | "safety_issue" | "listing" | "user";
+  reason?: string;
+  category?: string;
+  reporterId?: string;
+  conversationId?: string;
+  bookingId?: string;
+  listingId?: string;
+  supportTicketId?: string;
+  createdAt: string;
+  status?: string;
 }
 
 export interface RiskFlag {

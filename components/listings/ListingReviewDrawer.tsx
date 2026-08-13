@@ -7,9 +7,11 @@ import { StatusBadge } from "@/components/ui/badge";
 import {
   fetchListingDetail,
   fetchListingMediaBlobUrl,
+  fetchBookings,
+  fetchReviews,
 } from "@/lib/api/stays-admin";
 import { formatCurrency, formatDate, cn } from "@/lib/utils";
-import type { Listing, ListingDetail } from "@/lib/types";
+import type { Booking, Listing, ListingDetail, Review } from "@/lib/types";
 
 export function ListingReviewDrawer({
   listing,
@@ -33,6 +35,8 @@ export function ListingReviewDrawer({
   const [mediaUrls, setMediaUrls] = useState<Record<string, string>>({});
   const [mediaLoading, setMediaLoading] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
+  const [relatedBookings, setRelatedBookings] = useState<Booking[]>([]);
+  const [relatedReviews, setRelatedReviews] = useState<Review[]>([]);
 
   useEffect(() => {
     setRejectReason("");
@@ -58,6 +62,17 @@ export function ListingReviewDrawer({
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
+      });
+
+    Promise.all([fetchBookings().catch(() => []), fetchReviews().catch(() => [])])
+      .then(([bookings, reviews]) => {
+        if (cancelled) return;
+        setRelatedBookings(
+          bookings.filter(
+            (b) => b.listingId === listing.id || b.listingTitle === listing.title,
+          ),
+        );
+        setRelatedReviews(reviews.filter((r) => r.listingTitle === listing.title));
       });
 
     return () => {
@@ -338,6 +353,46 @@ export function ListingReviewDrawer({
                       <Detail label="User ID" value={detail.hostId} />
                     </dl>
                   </Section>
+
+                  <Section title="Booking history">
+                    {relatedBookings.length === 0 ? (
+                      <p className="text-sm text-nexa-ink-4">No bookings found for this listing.</p>
+                    ) : (
+                      <ul className="space-y-2 text-sm">
+                        {relatedBookings.slice(0, 8).map((b) => (
+                          <li
+                            key={b.id}
+                            className="flex items-center justify-between rounded-md border border-nexa-line px-3 py-2"
+                          >
+                            <span>
+                              <span className="font-medium text-nexa-ink">{b.reference}</span>
+                              <span className="ml-2 text-nexa-ink-4">
+                                {formatDate(b.checkIn)} → {formatDate(b.checkOut)}
+                              </span>
+                            </span>
+                            <StatusBadge status={b.rawStatus.toLowerCase()} />
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </Section>
+
+                  <Section title="Reviews">
+                    {relatedReviews.length === 0 ? (
+                      <p className="text-sm text-nexa-ink-4">No reviews yet.</p>
+                    ) : (
+                      <ul className="space-y-2 text-sm">
+                        {relatedReviews.slice(0, 6).map((r) => (
+                          <li key={r.id} className="rounded-md border border-nexa-line px-3 py-2">
+                            <p className="font-medium text-nexa-ink">
+                              {r.rating}/5 · {r.guestName}
+                            </p>
+                            <p className="mt-0.5 text-nexa-ink-3">{r.comment || "—"}</p>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </Section>
                 </>
               )}
 
@@ -386,6 +441,11 @@ export function ListingReviewDrawer({
                     >
                       Set live
                     </Button>
+                  ) : listing.status === "active" ? (
+                    <p className="text-xs text-nexa-ink-4">
+                      Pause / unpublish requires POST /admin/stays/listings/:id/pause
+                      (not yet available on Stays).
+                    </p>
                   ) : null}
                 </div>
               </div>

@@ -42,6 +42,7 @@ function normalizeFilter(raw: string | null): Filter {
   if (!raw) return "pending";
   if (raw === "live") return "active";
   if (raw === "paused") return "suspended";
+  if (raw === "drafts") return "draft";
   if (
     raw === "all" ||
     raw === "pending" ||
@@ -49,7 +50,8 @@ function normalizeFilter(raw: string | null): Filter {
     raw === "active" ||
     raw === "rejected" ||
     raw === "suspended" ||
-    raw === "flagged"
+    raw === "flagged" ||
+    raw === "draft"
   ) {
     return raw;
   }
@@ -67,6 +69,7 @@ function filterToUrlStatus(filter: Filter): string | null {
   if (filter === "all") return null;
   if (filter === "active") return "live";
   if (filter === "suspended") return "paused";
+  if (filter === "draft") return "draft";
   return filter;
 }
 
@@ -84,6 +87,8 @@ function countForFilter(counts: ListingCounts, filter: Filter): number {
       return counts.live;
     case "suspended":
       return counts.paused;
+    case "draft":
+      return counts.draft;
     default:
       return 0;
   }
@@ -256,6 +261,7 @@ function ListingsPageInner() {
             { value: "rejected", label: "Needs Changes", count: counts.rejected },
             { value: "active", label: "Live", count: counts.live },
             { value: "suspended", label: "Paused", count: counts.paused },
+            { value: "draft", label: "Drafts", count: counts.draft },
             { value: "all", label: "All", count: counts.all },
           ]}
         />
@@ -373,7 +379,12 @@ function ListingsPageInner() {
                         </Button>
                       )}
                       {l.status === "active" && (
-                        <Button variant="outline" size="icon" title="Live" disabled>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          title="Pause requires POST /admin/stays/listings/:id/pause (not yet available)"
+                          disabled
+                        >
                           <Ban className="h-4 w-4" />
                         </Button>
                       )}

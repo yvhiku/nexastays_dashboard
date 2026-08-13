@@ -5,10 +5,21 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { ChevronDown, Menu, X } from "lucide-react";
-import { navEntries, type NavItem } from "@/lib/nav";
+import { navEntries, type NavGroup, type NavItem } from "@/lib/nav";
 import { fetchStats, EMPTY_DASHBOARD_STATS } from "@/lib/api/stays-admin";
-import { cn } from "@/lib/utils";
+import { cn, initials } from "@/lib/utils";
 import { useAsyncStats } from "@/lib/hooks/use-async-data";
+import { useAuth } from "@/components/providers/auth-provider";
+
+function pathMatches(href: string, pathname: string) {
+  return href === "/"
+    ? pathname === "/"
+    : pathname === href || pathname.startsWith(`${href}/`);
+}
+
+function groupContainsPath(group: NavGroup, pathname: string) {
+  return group.items.some((i) => pathMatches(i.href, pathname));
+}
 
 function NavLink({
   item,
@@ -21,10 +32,7 @@ function NavLink({
   metrics: Record<string, number>;
   onNavigate: () => void;
 }) {
-  const active =
-    item.href === "/"
-      ? pathname === "/"
-      : pathname === item.href || pathname.startsWith(`${item.href}/`);
+  const active = pathMatches(item.href, pathname);
   const Icon = item.icon;
   const badge = item.badgeKey ? metrics[item.badgeKey] : undefined;
   if (item.hideWhenBadgeZero && (!badge || badge <= 0)) return null;
@@ -65,16 +73,20 @@ function NavLink({
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { session } = useAuth();
   const [open, setOpen] = useState(false);
-  const [trustOpen, setTrustOpen] = useState(
-    () =>
-      pathname.startsWith("/kyc") ||
-      pathname.startsWith("/reviews") ||
-      pathname.startsWith("/moderation") ||
-      pathname.startsWith("/audit-logs"),
-  );
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const { data: stats } = useAsyncStats(fetchStats, EMPTY_DASHBOARD_STATS, []);
   const metrics = stats as unknown as Record<string, number>;
+
+  const displayName = session?.name?.trim() || "Admin";
+  const displayEmail = session?.email?.trim() || session?.userId?.slice(0, 8) || "Signed in";
+  const displayRole = session?.roles?.[0] || session?.role || "ADMIN";
+
+  function isGroupOpen(group: NavGroup) {
+    if (openGroups[group.label] !== undefined) return openGroups[group.label];
+    return groupContainsPath(group, pathname);
+  }
 
   const nav = (
     <nav className="flex flex-col gap-0.5 px-3">
@@ -91,14 +103,18 @@ export function Sidebar() {
           );
         }
         const { group } = entry;
-        const groupActive = group.items.some(
-          (i) => pathname === i.href || pathname.startsWith(`${i.href}/`),
-        );
+        const groupActive = groupContainsPath(group, pathname);
+        const expanded = isGroupOpen(group);
         return (
           <div key={group.label} className="mt-2">
             <button
               type="button"
-              onClick={() => setTrustOpen((v) => !v)}
+              onClick={() =>
+                setOpenGroups((prev) => ({
+                  ...prev,
+                  [group.label]: !expanded,
+                }))
+              }
               className={cn(
                 "flex w-full items-center gap-2 rounded-md px-3 py-2 text-[11px] font-semibold uppercase tracking-wide",
                 groupActive ? "text-nexa-primary" : "text-nexa-ink-4",
@@ -108,11 +124,11 @@ export function Sidebar() {
               <ChevronDown
                 className={cn(
                   "h-3.5 w-3.5 transition-transform",
-                  trustOpen ? "rotate-0" : "-rotate-90",
+                  expanded ? "rotate-0" : "-rotate-90",
                 )}
               />
             </button>
-            {trustOpen && (
+            {expanded && (
               <div className="ml-1 flex flex-col gap-0.5 border-l border-nexa-line pl-1">
                 {group.items.map((item) => (
                   <NavLink
@@ -186,13 +202,15 @@ export function Sidebar() {
         <div className="border-t border-nexa-line p-3">
           <div className="flex items-center gap-3 rounded-md bg-nexa-bg-2 px-3 py-2.5">
             <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-nexa-primary text-sm font-semibold text-white">
-              SA
+              {initials(displayName) || "AD"}
             </span>
             <div className="min-w-0 leading-tight">
               <p className="truncate text-sm font-medium text-nexa-ink">
-                Super Admin
+                {displayName}
               </p>
-              <p className="truncate text-xs text-nexa-ink-4">admin@nexastays.ma</p>
+              <p className="truncate text-xs text-nexa-ink-4">
+                {displayRole.replace(/_/g, " ")} · {displayEmail}
+              </p>
             </div>
           </div>
         </div>

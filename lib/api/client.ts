@@ -25,6 +25,10 @@ export class ApiError extends Error {
   }
 }
 
+export function isNotImplemented(err: unknown): boolean {
+  return err instanceof ApiError && (err.status === 404 || err.status === 501);
+}
+
 type FetchOptions = RequestInit & { base?: "stays" | "identity" };
 
 export async function apiFetch<T>(

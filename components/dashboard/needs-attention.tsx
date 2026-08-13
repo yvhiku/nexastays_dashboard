@@ -37,6 +37,27 @@ export function NeedsAttention({ overview }: { overview: OpsOverview }) {
       href: "/listings?status=rejected",
     },
   ];
+  if ((a.openTickets ?? 0) > 0) {
+    items.push({
+      label: "Open support tickets",
+      count: a.openTickets ?? 0,
+      href: "/support",
+    });
+  }
+  if ((a.paymentFailures ?? 0) > 0) {
+    items.push({
+      label: "Payment failures",
+      count: a.paymentFailures ?? 0,
+      href: "/payments",
+    });
+  }
+  if ((a.pendingRefunds ?? 0) > 0) {
+    items.push({
+      label: "Pending refunds",
+      count: a.pendingRefunds ?? 0,
+      href: "/refunds",
+    });
+  }
   if (a.failedPayouts > 0) {
     items.push({
       label: "Failed payouts",

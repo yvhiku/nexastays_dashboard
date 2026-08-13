@@ -18,10 +18,14 @@ import { AreaChart, BarChart } from "@/components/charts/charts";
 import { ClientOnly } from "@/components/client-only";
 import {
   fetchOpsOverview,
+  fetchStats,
+  fetchAuditLogs,
   EMPTY_OPS_OVERVIEW,
+  EMPTY_DASHBOARD_STATS,
 } from "@/lib/api/stays-admin";
-import { useAsyncStats } from "@/lib/hooks/use-async-data";
+import { useAsyncList, useAsyncStats } from "@/lib/hooks/use-async-data";
 import { formatCurrency, formatNumber } from "@/lib/utils";
+import { AuditActivityStrip } from "@/components/dashboard/audit-activity-strip";
 
 const CHART_FALLBACK = <div className="h-[200px]" />;
 const OVERVIEW_REFRESH_MS = 60_000;
@@ -33,6 +37,13 @@ export default function OverviewPage() {
     [],
     OVERVIEW_REFRESH_MS,
   );
+  const { data: stats } = useAsyncStats(
+    fetchStats,
+    EMPTY_DASHBOARD_STATS,
+    [],
+    OVERVIEW_REFRESH_MS,
+  );
+  const { data: auditLogs } = useAsyncList(fetchAuditLogs, []);
 
   if (error) {
     return (
@@ -50,7 +61,10 @@ export default function OverviewPage() {
     (a.pendingKyc ?? 0) +
     a.needsChangesListings +
     a.failedPayouts +
-    a.urgentAlerts;
+    a.urgentAlerts +
+    (a.openTickets ?? 0) +
+    (a.paymentFailures ?? 0) +
+    (a.pendingRefunds ?? 0);
 
   const bookingsSeries = overview.series.map((p) => ({
     label: p.date.slice(5),
@@ -92,6 +106,23 @@ export default function OverviewPage() {
             value={loading ? "…" : formatNumber(s.activeBookings)}
             icon={CalendarCheck}
           />
+          <MetricCard
+            label="Today's bookings"
+            value={loading ? "…" : formatNumber(stats.todayBookings)}
+            icon={CalendarCheck}
+          />
+          <MetricCard
+            label="Total bookings"
+            value={loading ? "…" : formatNumber(stats.totalBookings)}
+            icon={CalendarRange}
+          />
+          {(stats.openTickets > 0 || (overview.attention.openTickets ?? 0) > 0) && (
+            <MetricCard
+              label="Open support tickets"
+              value={formatNumber(stats.openTickets || overview.attention.openTickets || 0)}
+              icon={Users}
+            />
+          )}
           <MetricCard
             label="Revenue today"
             value={loading ? "…" : formatCurrency(s.revenueToday)}
@@ -142,6 +173,8 @@ export default function OverviewPage() {
       </section>
 
       <GroupedActivity overview={overview} />
+
+      <AuditActivityStrip logs={auditLogs} />
     </div>
   );
 }

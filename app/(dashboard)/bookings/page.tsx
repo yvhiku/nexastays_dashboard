@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Eye, XCircle, RefreshCw, MapPin, ArrowRight, User, FileImage } from "lucide-react";
+import { useEffect, useMemo, useState, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
+import { Eye, MapPin, ArrowRight, User, FileImage } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -14,38 +15,74 @@ import {
   fetchOccupantIdDocumentBlobUrl,
 } from "@/lib/api/stays-admin";
 import { useAsyncList } from "@/lib/hooks/use-async-data";
-import { formatCurrency, formatDate, cn } from "@/lib/utils";
+import { formatCurrency, formatDate, formatDateTime, cn } from "@/lib/utils";
 import type { Booking, BookingDetail, BookingOccupant } from "@/lib/types";
 
-type Filter = "all" | Booking["status"];
+type Filter =
+  | "all"
+  | "PAYMENT_PENDING"
+  | "CONFIRMED"
+  | "CHECKED_IN"
+  | "COMPLETED"
+  | "CANCELLED_BY_GUEST"
+  | "CANCELLED_BY_HOST"
+  | "EXPIRED"
+  | "INITIATED";
+
+function matchesFilter(b: Booking, filter: Filter) {
+  if (filter === "all") return true;
+  if (filter === "PAYMENT_PENDING") {
+    return b.rawStatus === "PAYMENT_PENDING" || b.rawStatus === "INITIATED";
+  }
+  return b.rawStatus === filter;
+}
 
 export default function BookingsPage() {
+  return (
+    <Suspense fallback={<p className="py-10 text-center text-sm text-nexa-ink-4">Loading…</p>}>
+      <BookingsPageInner />
+    </Suspense>
+  );
+}
+
+function BookingsPageInner() {
+  const searchParams = useSearchParams();
   const [filter, setFilter] = useState<Filter>("all");
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
   const [selected, setSelected] = useState<Booking | null>(null);
 
   const { data: bookings, loading, error } = useAsyncList(fetchBookings, []);
 
+  useEffect(() => {
+    setQuery(searchParams.get("q") ?? "");
+  }, [searchParams]);
+
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: bookings.length };
-    for (const b of bookings) c[b.status] = (c[b.status] ?? 0) + 1;
+    for (const b of bookings) {
+      const key =
+        b.rawStatus === "INITIATED" ? "PAYMENT_PENDING" : b.rawStatus;
+      c[key] = (c[key] ?? 0) + 1;
+    }
     return c;
   }, [bookings]);
 
   const filtered = bookings.filter((b) => {
-    const matchFilter = filter === "all" || b.status === filter;
+    const matchFilter = matchesFilter(b, filter);
+    const q = query.toLowerCase();
     const matchQuery =
-      b.reference.toLowerCase().includes(query.toLowerCase()) ||
-      b.guestName.toLowerCase().includes(query.toLowerCase()) ||
-      b.listingTitle.toLowerCase().includes(query.toLowerCase());
+      b.reference.toLowerCase().includes(q) ||
+      b.guestName.toLowerCase().includes(q) ||
+      b.listingTitle.toLowerCase().includes(q) ||
+      b.id.toLowerCase().includes(q);
     return matchFilter && matchQuery;
   });
 
   return (
     <div>
       <PageHeader
-        title="Bookings Management"
-        description="Reservations from the Stays database."
+        title="Bookings"
+        description="Inspect reservations, money, and occupancy. Status filters match Stays."
       />
 
       {error && (
@@ -58,10 +95,25 @@ export default function BookingsPage() {
           onChange={setFilter}
           options={[
             { value: "all", label: "All", count: counts.all },
-            { value: "confirmed", label: "Confirmed", count: counts.confirmed },
-            { value: "pending", label: "Pending", count: counts.pending },
-            { value: "completed", label: "Completed", count: counts.completed },
-            { value: "cancelled", label: "Cancelled", count: counts.cancelled },
+            {
+              value: "PAYMENT_PENDING",
+              label: "Pending payment",
+              count: counts.PAYMENT_PENDING ?? 0,
+            },
+            { value: "CONFIRMED", label: "Confirmed", count: counts.CONFIRMED ?? 0 },
+            { value: "CHECKED_IN", label: "Checked in", count: counts.CHECKED_IN ?? 0 },
+            { value: "COMPLETED", label: "Completed", count: counts.COMPLETED ?? 0 },
+            {
+              value: "CANCELLED_BY_GUEST",
+              label: "Cancelled (guest)",
+              count: counts.CANCELLED_BY_GUEST ?? 0,
+            },
+            {
+              value: "CANCELLED_BY_HOST",
+              label: "Cancelled (host)",
+              count: counts.CANCELLED_BY_HOST ?? 0,
+            },
+            { value: "EXPIRED", label: "Expired", count: counts.EXPIRED ?? 0 },
           ]}
         />
         <SearchInput
@@ -108,18 +160,13 @@ export default function BookingsPage() {
                 <TD>{b.nights}</TD>
                 <TD className="font-medium">{formatCurrency(b.total)}</TD>
                 <TD>
-                  <StatusBadge status={b.status} />
+                  <StatusBadge status={b.rawStatus.toLowerCase()} />
                 </TD>
                 <TD>
                   <div className="flex items-center justify-end gap-1">
                     <Button variant="ghost" size="icon" title="View" onClick={() => setSelected(b)}>
                       <Eye className="h-4 w-4" />
                     </Button>
-                    {(b.status === "confirmed" || b.status === "pending") && (
-                      <Button variant="danger-outline" size="icon" title="Cancel">
-                        <XCircle className="h-4 w-4" />
-                      </Button>
-                    )}
                   </div>
                 </TD>
               </TR>
@@ -167,6 +214,16 @@ function BookingDrawer({ booking, onClose }: { booking: Booking | null; onClose:
   }, [booking]);
 
   const data = detail ?? booking;
+  const currency = detail?.currency ?? "MAD";
+
+  const timeline = data
+    ? [
+        { label: "Created", at: data.createdAt },
+        { label: "Paid", at: data.paidAt },
+        { label: "Confirmed", at: data.confirmedAt },
+        { label: "Completed", at: data.completedAt },
+      ].filter((s): s is { label: string; at: string } => Boolean(s.at))
+    : [];
 
   return (
     <>
@@ -191,11 +248,11 @@ function BookingDrawer({ booking, onClose }: { booking: Booking | null; onClose:
                 <h2 className="font-display text-xl font-semibold text-nexa-ink">
                   {data.reference}
                 </h2>
-                {detail?.rawStatus && (
-                  <p className="text-xs text-nexa-ink-4 mt-1">Status: {detail.rawStatus}</p>
-                )}
+                <p className="mt-1 text-xs text-nexa-ink-4">
+                  Status: {data.rawStatus}
+                </p>
               </div>
-              <StatusBadge status={data.status} />
+              <StatusBadge status={data.rawStatus.toLowerCase()} />
             </div>
 
             {loading && (
@@ -221,23 +278,72 @@ function BookingDrawer({ booking, onClose }: { booking: Booking | null; onClose:
               </div>
             </div>
 
+            {timeline.length > 0 && (
+              <div className="mt-5">
+                <p className="mb-2 text-xs font-semibold uppercase text-nexa-ink-4">Timeline</p>
+                <ol className="space-y-2 border-l border-nexa-line pl-4">
+                  {timeline.map((step) => (
+                    <li key={step.label} className="relative text-sm">
+                      <span className="absolute -left-[21px] top-1.5 h-2 w-2 rounded-full bg-nexa-primary" />
+                      <span className="font-medium text-nexa-ink">{step.label}</span>
+                      <span className="ml-2 text-xs text-nexa-ink-4">
+                        {formatDateTime(step.at)}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
+
             <dl className="mt-5 grid grid-cols-2 gap-4 text-sm">
               <Detail label="Guest ID" value={data.guestUserId?.slice(0, 12) ?? data.guestName} />
               <Detail label="Host ID" value={data.hostUserId?.slice(0, 12) ?? data.hostName} />
               <Detail label="Guests" value={String(data.guests)} />
               <Detail label="Nights" value={String(data.nights)} />
-              <Detail label="Total paid" value={formatCurrency(data.total)} />
               <Detail label="Booked on" value={formatDate(data.createdAt)} />
-              {detail?.subtotal != null && (
-                <Detail label="Subtotal" value={formatCurrency(detail.subtotal, detail.currency)} />
-              )}
-              {detail?.guestFee != null && (
-                <Detail label="Guest fee" value={formatCurrency(detail.guestFee, detail.currency)} />
-              )}
-              {detail?.hostFee != null && (
-                <Detail label="Host fee" value={formatCurrency(detail.hostFee, detail.currency)} />
-              )}
             </dl>
+
+            <div className="mt-5 rounded-md border border-nexa-line p-4">
+              <p className="mb-3 text-xs font-semibold uppercase text-nexa-ink-4">
+                Financial breakdown
+              </p>
+              <dl className="space-y-2 text-sm">
+                {detail?.subtotal != null && (
+                  <MoneyRow label="Base price" value={formatCurrency(detail.subtotal, currency)} />
+                )}
+                {detail?.guestFee != null && (
+                  <MoneyRow label="Guest fee" value={formatCurrency(detail.guestFee, currency)} />
+                )}
+                <MoneyRow label="Total paid" value={formatCurrency(data.total, currency)} />
+                {detail?.hostFee != null && (
+                  <MoneyRow label="Host fee" value={formatCurrency(detail.hostFee, currency)} />
+                )}
+                {detail?.payoutAmount != null && (
+                  <MoneyRow
+                    label="Host payout"
+                    value={formatCurrency(detail.payoutAmount, currency)}
+                  />
+                )}
+              </dl>
+              {detail?.ledger && detail.ledger.length > 0 && (
+                <ul className="mt-4 space-y-1 border-t border-nexa-line pt-3 text-xs text-nexa-ink-3">
+                  {detail.ledger.map((line) => (
+                    <li key={line.id} className="flex justify-between">
+                      <span>
+                        {line.type.replace(/_/g, " ")} · {line.status}
+                      </span>
+                      <span className="font-medium text-nexa-ink">
+                        {formatCurrency(line.amount, line.currency)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="mt-3 text-xs text-nexa-ink-4">
+                Financial records are append-only. Cancel, refund, and dispute actions are
+                unavailable until controlled Stays APIs exist.
+              </p>
+            </div>
 
             {detail && detail.occupants.length > 0 && (
               <div className="mt-6 space-y-4">
@@ -261,25 +367,19 @@ function BookingDrawer({ booking, onClose }: { booking: Booking | null; onClose:
                 <p className="text-sm text-nexa-danger">{booking.cancellationReason}</p>
               </div>
             )}
-
-            <div className="mt-6 space-y-2">
-              <p className="text-xs font-semibold uppercase text-nexa-ink-4">Admin actions</p>
-              <div className="flex flex-wrap gap-2">
-                <Button variant="outline" size="sm">
-                  <RefreshCw className="h-4 w-4" /> Override status
-                </Button>
-                <Button variant="outline" size="sm">
-                  Resolve dispute
-                </Button>
-                <Button variant="danger-outline" size="sm">
-                  <XCircle className="h-4 w-4" /> Cancel booking
-                </Button>
-              </div>
-            </div>
           </div>
         )}
       </aside>
     </>
+  );
+}
+
+function MoneyRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between">
+      <dt className="text-nexa-ink-3">{label}</dt>
+      <dd className="font-medium text-nexa-ink">{value}</dd>
+    </div>
   );
 }
 

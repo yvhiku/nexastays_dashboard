@@ -60,7 +60,21 @@ const statusMap: Record<string, StatusTone> = {
   cancelled: "danger",
   removed: "danger",
   escalated: "danger",
-  unverified: "neutral",
+  draft: "neutral",
+  expired: "neutral",
+  payment_pending: "warning",
+  initiated: "warning",
+  checked_in: "success",
+  cancelled_by_guest: "danger",
+  cancelled_by_host: "danger",
+  succeeded: "success",
+  failed: "danger",
+  refunded: "warning",
+  settled: "success",
+  waiting_for_customer: "warning",
+  waiting_for_host: "warning",
+  closed: "neutral",
+  hidden: "warning",
 };
 
 export function StatusBadge({ status }: { status: string }) {

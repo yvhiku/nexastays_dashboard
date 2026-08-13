@@ -69,6 +69,44 @@ export async function fetchKycApplications(status?: string): Promise<KycRecord[]
   return rows.map(mapKyc);
 }
 
+export type KycCase = {
+  id: string;
+  userId: string;
+  name: string;
+  phone?: string | null;
+  email?: string | null;
+  status: KycRecord["status"];
+  provider: string;
+  documentType: string;
+  submittedAt: string;
+  reviewedAt?: string;
+  failureReason?: string;
+  source?: string;
+  isHost?: boolean;
+  documents?: { id_document?: boolean; selfie?: boolean; liveness?: boolean };
+};
+
+export async function fetchKycCase(id: string): Promise<KycCase> {
+  const row = await apiFetch<ApiKycRow & {
+    user_id?: string;
+    user_phone?: string | null;
+    user_name?: string | null;
+    email?: string | null;
+    documents?: KycCase["documents"];
+    source?: string;
+  }>(`/admin/kyc/${encodeURIComponent(id)}`, { base: "identity" });
+  const mapped = mapKyc(row);
+  return {
+    ...mapped,
+    userId: row.user_id ?? "",
+    phone: row.user_phone,
+    email: row.email,
+    source: row.source,
+    isHost: row.is_host,
+    documents: row.documents,
+  };
+}
+
 export type IdentityAccountStatus = "ACTIVE" | "SUSPENDED" | "FROZEN" | "BANNED";
 
 /** Set Identity account status (admin). Logs USER_STATUS_UPDATED audit event. */
