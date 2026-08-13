@@ -13,6 +13,7 @@ import type {
   RiskFlag,
   SafetyReport,
   Ticket,
+  TicketDetail,
   TicketMessage,
 } from "../types";
 import { apiConfig } from "./config";
@@ -32,6 +33,25 @@ function thumbColor(id: string) {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h + id.charCodeAt(i)) % THUMB_COLORS.length;
   return THUMB_COLORS[h];
+}
+
+function normalizeSenderType(value: unknown): TicketMessage["senderType"] {
+  const upper = String(value ?? "").toUpperCase();
+  if (upper === "SUPPORT_AGENT") return "SUPPORT_AGENT";
+  if (upper === "SYSTEM") return "SYSTEM";
+  return "CUSTOMER";
+}
+
+export function ticketContextHref(
+  kind: "booking" | "listing" | "host" | "report" | "safety",
+  id: string | null | undefined,
+): string | null {
+  if (!id) return null;
+  const q = encodeURIComponent(id);
+  if (kind === "booking") return `/bookings?q=${q}`;
+  if (kind === "listing") return `/listings?status=all&q=${q}`;
+  if (kind === "host") return `/hosts?status=all&q=${q}`;
+  return `/reports?q=${q}`;
 }
 
 function mapListingStatus(
@@ -1059,6 +1079,48 @@ export async function fetchTickets(): Promise<TicketsResult> {
   }
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
+
+export async function fetchTicket(ticketId: string): Promise<TicketDetail> {
+  const row = await apiFetch<Record<string, unknown>>(`/admin/stays/support/tickets/${ticketId}`);
+  const listing = asRecord(row.listing);
+  const report = asRecord(row.report);
+  const safety = asRecord(row.safetyIssue ?? row.safety_issue);
+  return {
+    ...mapTicket(row),
+    conversationId: (row.conversationId ?? row.conversation_id) as string | undefined,
+    listingTitle: (listing?.title ?? row.listing_title) as string | undefined,
+    hostUserId: (listing?.hostUserId ?? listing?.host_user_id) as string | undefined,
+    listing: listing
+      ? {
+          id: String(listing.id ?? ""),
+          title: listing.title as string | undefined,
+          hostUserId: (listing.hostUserId ?? listing.host_user_id) as string | undefined,
+          city: listing.city as string | undefined,
+        }
+      : null,
+    report: report
+      ? {
+          id: String(report.id ?? ""),
+          reason: (report.reason as string | null | undefined) ?? null,
+          conversationId: (report.conversationId ?? report.conversation_id) as string | undefined,
+          reporterUserId: (report.reporterUserId ?? report.reporter_user_id) as string | undefined,
+        }
+      : null,
+    safetyIssue: safety
+      ? {
+          id: String(safety.id ?? ""),
+          category: safety.category as string | undefined,
+          details: (safety.details as string | null | undefined) ?? null,
+          conversationId: (safety.conversationId ?? safety.conversation_id) as string | undefined,
+          reporterUserId: (safety.reporterUserId ?? safety.reporter_user_id) as string | undefined,
+        }
+      : null,
+  };
+}
+
 export async function fetchTicketMessages(ticketId: string): Promise<TicketMessage[]> {
   try {
     const data = await apiFetch<{ items?: Record<string, unknown>[] } | Record<string, unknown>[]>(
@@ -1068,7 +1130,7 @@ export async function fetchTicketMessages(ticketId: string): Promise<TicketMessa
     return rows.map((row) => ({
       id: String(row.id ?? ""),
       ticketId,
-      senderType: (row.sender_type ?? row.senderType ?? "USER") as TicketMessage["senderType"],
+      senderType: normalizeSenderType(row.sender_type ?? row.senderType),
       senderId: (row.sender_id ?? row.senderId) as string | undefined,
       body: String(row.body ?? ""),
       createdAt: String(row.created_at ?? row.createdAt ?? ""),

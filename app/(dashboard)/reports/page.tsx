@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ShieldAlert } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
@@ -18,9 +18,18 @@ import type { SafetyReport } from "@/lib/types";
 type Filter = "all" | SafetyReport["kind"];
 
 export default function ReportsPage() {
+  return (
+    <Suspense fallback={<p className="py-10 text-center text-sm text-nexa-ink-4">Loading…</p>}>
+      <ReportsPageInner />
+    </Suspense>
+  );
+}
+
+function ReportsPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [filter, setFilter] = useState<Filter>("all");
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
   const [selected, setSelected] = useState<SafetyReport | null>(null);
   const { data, loading, error } = useAsyncData<ReportsResult>(
     fetchReports,
@@ -30,6 +39,23 @@ export default function ReportsPage() {
 
   const items = data?.items ?? [];
   const unavailable = data?.unavailable ?? false;
+
+  useEffect(() => {
+    setQuery(searchParams.get("q") ?? "");
+  }, [searchParams]);
+
+  useEffect(() => {
+    const q = (searchParams.get("q") ?? "").toLowerCase();
+    if (!q || items.length === 0) return;
+    const match = items.find(
+      (r) =>
+        r.id.toLowerCase() === q ||
+        r.id.toLowerCase().includes(q) ||
+        (r.reason ?? "").toLowerCase().includes(q) ||
+        (r.category ?? "").toLowerCase().includes(q),
+    );
+    if (match) setSelected(match);
+  }, [items, searchParams]);
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: items.length };
@@ -175,14 +201,16 @@ export default function ReportsPage() {
               {selected.supportTicketId && (
                 <Button
                   variant="outline"
-                  onClick={() => router.push("/support")}
+                  onClick={() =>
+                    router.push(`/support?ticket=${encodeURIComponent(selected.supportTicketId!)}`)
+                  }
                 >
                   Open support ticket
                 </Button>
               )}
               {!selected.supportTicketId && (
                 <Button variant="outline" onClick={() => router.push("/support")}>
-                  Open support (create/link when API exists)
+                  Open support tickets
                 </Button>
               )}
               <Button variant="ghost" onClick={() => setSelected(null)}>

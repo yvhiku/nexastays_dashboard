@@ -248,10 +248,39 @@ export interface Ticket {
 export interface TicketMessage {
   id: string;
   ticketId: string;
-  senderType: "USER" | "SUPPORT_AGENT" | "SYSTEM";
+  senderType: "USER" | "CUSTOMER" | "SUPPORT_AGENT" | "SYSTEM";
   senderId?: string;
   body: string;
   createdAt: string;
+}
+
+export interface TicketLinkedReport {
+  id: string;
+  reason?: string | null;
+  conversationId?: string;
+  reporterUserId?: string;
+}
+
+export interface TicketLinkedSafetyIssue {
+  id: string;
+  category?: string;
+  details?: string | null;
+  conversationId?: string;
+  reporterUserId?: string;
+}
+
+export interface TicketDetail extends Ticket {
+  conversationId?: string;
+  listingTitle?: string;
+  hostUserId?: string;
+  listing?: {
+    id: string;
+    title?: string;
+    hostUserId?: string;
+    city?: string;
+  } | null;
+  report?: TicketLinkedReport | null;
+  safetyIssue?: TicketLinkedSafetyIssue | null;
 }
 
 export interface PaymentRecord {

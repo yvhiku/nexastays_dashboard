@@ -1,31 +1,69 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { LifeBuoy, Send } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, Suspense } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { LifeBuoy, Send, UserCheck } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/badge";
 import { FilterTabs, SearchInput } from "@/components/ui/toolbar";
 import { ApiUnavailable } from "@/components/ui/api-unavailable";
+import { useAuth } from "@/components/providers/auth-provider";
 import {
   fetchBookingDetail,
+  fetchTicket,
   fetchTickets,
   fetchTicketMessages,
   sendTicketMessage,
   patchTicket,
+  ticketContextHref,
   type TicketsResult,
 } from "@/lib/api/stays-admin";
 import { useAsyncData } from "@/lib/hooks/use-async-data";
 import { formatDateTime, cn } from "@/lib/utils";
-import type { BookingDetail, Ticket, TicketMessage, TicketStatus } from "@/lib/types";
+import type {
+  BookingDetail,
+  Ticket,
+  TicketDetail,
+  TicketMessage,
+  TicketPriority,
+  TicketStatus,
+} from "@/lib/types";
 
 type Filter = "all" | TicketStatus;
 
+const STATUS_ACTIONS: TicketStatus[] = [
+  "IN_PROGRESS",
+  "WAITING_FOR_CUSTOMER",
+  "RESOLVED",
+  "CLOSED",
+];
+const PRIORITIES: TicketPriority[] = ["LOW", "NORMAL", "HIGH", "URGENT"];
+
+function senderLabel(senderType: TicketMessage["senderType"]) {
+  if (senderType === "SUPPORT_AGENT") return "Support";
+  if (senderType === "SYSTEM") return "System";
+  return "Customer";
+}
+
 export default function SupportPage() {
+  return (
+    <Suspense fallback={<p className="py-10 text-center text-sm text-nexa-ink-4">Loading…</p>}>
+      <SupportPageInner />
+    </Suspense>
+  );
+}
+
+function SupportPageInner() {
+  const searchParams = useSearchParams();
   const [filter, setFilter] = useState<Filter>("OPEN");
-  const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<Ticket | null>(null);
+  const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
+  const [selectedId, setSelectedId] = useState<string | null>(
+    () => searchParams.get("ticket") ?? null,
+  );
+  const [lookupTicket, setLookupTicket] = useState<Ticket | null>(null);
   const [lookupRef, setLookupRef] = useState("");
   const { data, loading, error, reload } = useAsyncData<TicketsResult>(
     fetchTickets,
@@ -36,6 +74,22 @@ export default function SupportPage() {
   const tickets = data?.items ?? [];
   const unavailable = data?.unavailable ?? false;
 
+  useEffect(() => {
+    setQuery(searchParams.get("q") ?? "");
+    const ticketParam = searchParams.get("ticket");
+    if (ticketParam) setSelectedId(ticketParam);
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (!selectedId || selectedId === "lookup") return;
+    const interval = setInterval(() => {
+      void reload();
+    }, 8000);
+    return () => clearInterval(interval);
+    // reload identity changes each render; poll only while a ticket is open
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId]);
+
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: tickets.length };
     for (const t of tickets) c[t.status] = (c[t.status] ?? 0) + 1;
@@ -43,22 +97,31 @@ export default function SupportPage() {
   }, [tickets]);
 
   const filtered = tickets.filter((t) => {
-    const match = filter === "all" || t.status === filter;
+    const match =
+      filter === "all" ||
+      t.status === filter ||
+      (filter === "WAITING_FOR_CUSTOMER" && t.status === "WAITING_FOR_HOST");
     const q = query.toLowerCase();
     return (
       match &&
       (t.ticketNumber.toLowerCase().includes(q) ||
         t.customerName.toLowerCase().includes(q) ||
         t.subject.toLowerCase().includes(q) ||
-        (t.bookingRef ?? "").toLowerCase().includes(q))
+        (t.bookingRef ?? "").toLowerCase().includes(q) ||
+        t.id.toLowerCase().includes(q))
     );
   });
+
+  const selected =
+    selectedId === "lookup"
+      ? lookupTicket
+      : (tickets.find((t) => t.id === selectedId) ?? null);
 
   return (
     <div>
       <PageHeader
         title="Support"
-        description="Stays marketplace tickets. Replies belong on the customer Messages → Support thread when the API is connected."
+        description="Live Stays support tickets. Replies land on the customer Messages → Support thread."
       />
 
       {unavailable && (
@@ -84,8 +147,8 @@ export default function SupportPage() {
           </div>
           <Button
             size="sm"
-            onClick={() =>
-              setSelected({
+            onClick={() => {
+              setLookupTicket({
                 id: "lookup",
                 ticketNumber: "Lookup",
                 subject: "Booking context",
@@ -98,8 +161,9 @@ export default function SupportPage() {
                 updatedAt: "",
                 bookingId: lookupRef.trim(),
                 bookingRef: lookupRef.trim(),
-              })
-            }
+              });
+              setSelectedId("lookup");
+            }}
             disabled={!lookupRef.trim()}
           >
             Open context
@@ -121,6 +185,7 @@ export default function SupportPage() {
             },
             { value: "ESCALATED", label: "Escalated", count: counts.ESCALATED ?? 0 },
             { value: "RESOLVED", label: "Resolved", count: counts.RESOLVED ?? 0 },
+            { value: "CLOSED", label: "Closed", count: counts.CLOSED ?? 0 },
             { value: "all", label: "All", count: counts.all },
           ]}
         />
@@ -134,7 +199,7 @@ export default function SupportPage() {
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
         <Card>
-          {loading ? (
+          {loading && tickets.length === 0 ? (
             <p className="py-10 text-center text-sm text-nexa-ink-4">Loading tickets…</p>
           ) : filtered.length === 0 ? (
             <div className="py-12 text-center">
@@ -149,7 +214,10 @@ export default function SupportPage() {
                 <li key={t.id}>
                   <button
                     type="button"
-                    onClick={() => setSelected(t)}
+                    onClick={() => {
+                      setLookupTicket(null);
+                      setSelectedId(t.id);
+                    }}
                     className={cn(
                       "flex w-full items-start justify-between gap-3 px-4 py-3 text-left hover:bg-nexa-bg-2",
                       selected?.id === t.id && "bg-nexa-primary-soft/40",
@@ -162,6 +230,7 @@ export default function SupportPage() {
                       </p>
                       <p className="mt-0.5 text-xs text-nexa-ink-4">
                         {t.customerName}
+                        {t.party === "HOST" ? " · Host" : " · Guest"}
                         {t.bookingRef ? ` · ${t.bookingRef}` : ""}
                         {t.lastMessagePreview ? ` · ${t.lastMessagePreview}` : ""}
                       </p>
@@ -170,7 +239,7 @@ export default function SupportPage() {
                       <StatusBadge status={t.status.toLowerCase()} />
                       {t.unreadForSupport && (
                         <span className="rounded-full bg-nexa-primary px-1.5 text-[10px] font-semibold text-white">
-                          ●
+                          New
                         </span>
                       )}
                     </div>
@@ -184,7 +253,10 @@ export default function SupportPage() {
         <SupportWorkspace
           ticket={selected}
           unavailable={unavailable}
-          onClose={() => setSelected(null)}
+          onClose={() => {
+            setSelectedId(null);
+            setLookupTicket(null);
+          }}
           onChanged={reload}
         />
       </div>
@@ -203,17 +275,25 @@ function SupportWorkspace({
   onClose: () => void;
   onChanged: () => Promise<void> | void;
 }) {
+  const { session } = useAuth();
+  const [detail, setDetail] = useState<TicketDetail | null>(null);
   const [messages, setMessages] = useState<TicketMessage[]>([]);
   const [booking, setBooking] = useState<BookingDetail | null>(null);
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
+  const ticketIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    setReply("");
-    setStatusError(null);
-    setMessages([]);
-    setBooking(null);
+    const ticketId = ticket?.id ?? null;
+    if (ticketIdRef.current !== ticketId) {
+      setReply("");
+      setStatusError(null);
+      setMessages([]);
+      setBooking(null);
+      setDetail(null);
+      ticketIdRef.current = ticketId;
+    }
     if (!ticket) return;
     const bookingKey = ticket.bookingId || ticket.bookingRef;
     if (bookingKey) {
@@ -221,10 +301,34 @@ function SupportWorkspace({
         .then(setBooking)
         .catch(() => setBooking(null));
     }
-    if (ticket.id !== "lookup") {
-      void fetchTicketMessages(ticket.id).then(setMessages).catch(() => setMessages([]));
-    }
-  }, [ticket]);
+    if (ticket.id === "lookup") return;
+
+    let cancelled = false;
+    const load = () => {
+      void fetchTicketMessages(ticket.id)
+        .then((next) => {
+          if (!cancelled) setMessages(next);
+        })
+        .catch(() => {
+          if (!cancelled) setMessages([]);
+        });
+      void fetchTicket(ticket.id)
+        .then((next) => {
+          if (!cancelled) setDetail(next);
+        })
+        .catch(() => {
+          if (!cancelled) setDetail(null);
+        });
+    };
+    load();
+    const interval = setInterval(load, 8000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+    // Intentionally keyed to ticket identity, not object identity after list reload.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ticket?.id, ticket?.bookingId, ticket?.bookingRef]);
 
   async function send() {
     if (!ticket || ticket.id === "lookup" || !reply.trim()) return;
@@ -252,6 +356,31 @@ function SupportWorkspace({
     }
   }
 
+  async function changePriority(priority: TicketPriority) {
+    if (!ticket || ticket.id === "lookup") return;
+    try {
+      await patchTicket(ticket.id, { priority });
+      await onChanged();
+    } catch (err) {
+      setStatusError(err instanceof Error ? err.message : "Failed to update priority");
+    }
+  }
+
+  async function assignSelf() {
+    if (!ticket || ticket.id === "lookup") return;
+    const adminId = session?.userId;
+    if (!adminId) {
+      setStatusError("Your admin session has no user id to assign.");
+      return;
+    }
+    try {
+      await patchTicket(ticket.id, { assigned_admin_id: adminId });
+      await onChanged();
+    } catch (err) {
+      setStatusError(err instanceof Error ? err.message : "Failed to assign");
+    }
+  }
+
   if (!ticket) {
     return (
       <Card>
@@ -262,28 +391,58 @@ function SupportWorkspace({
     );
   }
 
+  const live = detail ?? ticket;
+  const listingId = live.listingId ?? detail?.listing?.id;
+  const hostUserId = detail?.hostUserId ?? detail?.listing?.hostUserId;
+  const reportId = live.reportId ?? detail?.report?.id;
+  const safetyIssueId = live.safetyIssueId ?? detail?.safetyIssue?.id;
+  const bookingHref = ticketContextHref("booking", live.bookingId ?? live.bookingRef);
+  const listingHref = ticketContextHref("listing", listingId);
+  const hostHref = ticketContextHref("host", hostUserId);
+  const reportHref = ticketContextHref("report", reportId);
+  const safetyHref = ticketContextHref("safety", safetyIssueId);
+
   return (
     <Card className="flex max-h-[80vh] flex-col">
       <div className="border-b border-nexa-line px-4 py-3">
         <div className="flex items-start justify-between gap-2">
           <div>
             <p className="font-display text-lg font-semibold text-nexa-ink">
-              {ticket.ticketNumber}
+              {live.ticketNumber}
             </p>
-            <p className="text-sm text-nexa-ink-3">{ticket.subject}</p>
+            <p className="text-sm text-nexa-ink-3">{live.subject}</p>
+            <p className="mt-1 text-xs text-nexa-ink-4">
+              {live.priority} · {live.assignee ? `Assigned ${live.assignee}` : "Unassigned"}
+            </p>
           </div>
-          <StatusBadge status={ticket.status.toLowerCase()} />
+          <StatusBadge status={live.status.toLowerCase()} />
         </div>
         {ticket.id !== "lookup" && !unavailable && (
-          <div className="mt-3 flex flex-wrap gap-1">
-            {(["IN_PROGRESS", "WAITING_FOR_CUSTOMER", "RESOLVED", "CLOSED"] as const).map(
-              (s) => (
+          <>
+            <div className="mt-3 flex flex-wrap gap-1">
+              {STATUS_ACTIONS.map((s) => (
                 <Button key={s} size="sm" variant="outline" onClick={() => changeStatus(s)}>
                   {s.replace(/_/g, " ")}
                 </Button>
-              ),
-            )}
-          </div>
+              ))}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1">
+              {PRIORITIES.map((p) => (
+                <Button
+                  key={p}
+                  size="sm"
+                  variant={live.priority === p ? "soft" : "outline"}
+                  onClick={() => changePriority(p)}
+                >
+                  {p}
+                </Button>
+              ))}
+              <Button size="sm" variant="outline" onClick={() => void assignSelf()}>
+                <UserCheck className="h-3.5 w-3.5" />
+                Assign to me
+              </Button>
+            </div>
+          </>
         )}
         {statusError && <p className="mt-2 text-xs text-nexa-danger">{statusError}</p>}
       </div>
@@ -311,7 +470,7 @@ function SupportWorkspace({
                   )}
                 >
                   <p className="text-[11px] font-semibold uppercase text-nexa-ink-4">
-                    {m.senderType.replace(/_/g, " ")}
+                    {senderLabel(m.senderType)}
                   </p>
                   <p className="mt-1 whitespace-pre-wrap">{m.body}</p>
                   {m.createdAt && (
@@ -343,14 +502,24 @@ function SupportWorkspace({
 
         <div className="overflow-y-auto p-4 text-sm">
           <p className="text-xs font-semibold uppercase text-nexa-ink-4">Context</p>
-          <ContextBlock label="Customer" value={ticket.customerName} />
-          <ContextBlock label="Party" value={ticket.party} />
-          {ticket.bookingRef && <ContextBlock label="Booking" value={ticket.bookingRef} />}
+          <ContextBlock label="Customer" value={live.customerName} />
+          <ContextBlock label="Party" value={live.party} />
+          {live.bookingRef && (
+            <ContextLink
+              label="Booking"
+              value={live.bookingRef}
+              href={bookingHref}
+            />
+          )}
           {booking && (
             <>
-              <ContextBlock label="Listing" value={booking.listingTitle} />
+              <ContextLink
+                label="Listing"
+                value={booking.listingTitle}
+                href={listingHref}
+              />
               <ContextBlock label="City" value={booking.city} />
-              <ContextBlock label="Host" value={booking.hostName} />
+              <ContextLink label="Host" value={booking.hostName} href={hostHref} />
               <ContextBlock
                 label="Stay"
                 value={`${booking.checkIn} → ${booking.checkOut}`}
@@ -371,9 +540,32 @@ function SupportWorkspace({
               )}
             </>
           )}
-          {ticket.reportId && <ContextBlock label="Report" value={ticket.reportId} />}
-          {ticket.safetyIssueId && (
-            <ContextBlock label="Safety issue" value={ticket.safetyIssueId} />
+          {!booking && detail?.listing && (
+            <ContextLink
+              label="Listing"
+              value={detail.listing.title ?? detail.listing.id}
+              href={listingHref}
+            />
+          )}
+          {detail?.report && (
+            <ContextLink
+              label="Report"
+              value={detail.report.reason?.trim() || detail.report.id}
+              href={reportHref}
+            />
+          )}
+          {!detail?.report && reportId && (
+            <ContextLink label="Report" value={reportId} href={reportHref} />
+          )}
+          {detail?.safetyIssue && (
+            <ContextLink
+              label="Safety issue"
+              value={detail.safetyIssue.category ?? detail.safetyIssue.id}
+              href={safetyHref}
+            />
+          )}
+          {!detail?.safetyIssue && safetyIssueId && (
+            <ContextLink label="Safety issue" value={safetyIssueId} href={safetyHref} />
           )}
           {!booking && (ticket.bookingId || ticket.bookingRef) && (
             <p className="mt-3 text-xs text-nexa-ink-4">
@@ -395,6 +587,30 @@ function ContextBlock({ label, value }: { label: string; value: string }) {
     <div className="mt-3">
       <p className="text-[11px] uppercase text-nexa-ink-4">{label}</p>
       <p className="font-medium text-nexa-ink">{value}</p>
+    </div>
+  );
+}
+
+function ContextLink({
+  label,
+  value,
+  href,
+}: {
+  label: string;
+  value: string;
+  href: string | null;
+}) {
+  if (!value || value === "—") return null;
+  return (
+    <div className="mt-3">
+      <p className="text-[11px] uppercase text-nexa-ink-4">{label}</p>
+      {href ? (
+        <Link href={href} className="font-medium text-nexa-primary hover:underline">
+          {value}
+        </Link>
+      ) : (
+        <p className="font-medium text-nexa-ink">{value}</p>
+      )}
     </div>
   );
 }
