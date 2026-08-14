@@ -28,6 +28,7 @@ import type {
 } from "../types";
 import { apiConfig } from "./config";
 import { apiFetch, getAccessToken, isNotImplemented } from "./client";
+import type { SupportAgent } from "./identity-admin";
 
 const THUMB_COLORS = [
   "#E8507A",
@@ -1479,11 +1480,68 @@ export async function sendTicketMessage(ticketId: string, body: string) {
 export async function patchTicket(
   ticketId: string,
   patch: { status?: string; priority?: string; assigned_admin_id?: string | null },
-) {
-  return apiFetch(`/admin/stays/support/tickets/${ticketId}`, {
-    method: "PATCH",
-    body: JSON.stringify(patch),
+): Promise<Ticket> {
+  const row = await apiFetch<Record<string, unknown>>(
+    `/admin/stays/support/tickets/${ticketId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    },
+  );
+  return mapTicket(row);
+}
+
+export type SupportAgentWorkload = {
+  agentId: string;
+  assigned: number;
+  open: number;
+  inProgress: number;
+  waiting: number;
+};
+
+export type SupportAgentWithWorkload = SupportAgent & {
+  assigned: number;
+  open: number;
+  inProgress: number;
+  waiting: number;
+};
+
+export function joinSupportAgentsWithWorkload(
+  agents: SupportAgent[],
+  workload: SupportAgentWorkload[],
+): SupportAgentWithWorkload[] {
+  const byId = new Map(workload.map((row) => [row.agentId, row]));
+  return agents.map((agent) => {
+    const row = byId.get(agent.id);
+    return {
+      ...agent,
+      assigned: row?.assigned ?? 0,
+      open: row?.open ?? 0,
+      inProgress: row?.inProgress ?? 0,
+      waiting: row?.waiting ?? 0,
+    };
   });
+}
+
+export async function fetchSupportAgentWorkload(): Promise<SupportAgentWorkload[]> {
+  const data = await apiFetch<{
+    items?: Array<{
+      agentId?: string;
+      agent_id?: string;
+      assigned?: number;
+      open?: number;
+      inProgress?: number;
+      in_progress?: number;
+      waiting?: number;
+    }>;
+  }>("/admin/stays/support/agents/workload");
+  return (data.items ?? []).map((row) => ({
+    agentId: String(row.agentId ?? row.agent_id ?? ""),
+    assigned: Number(row.assigned ?? 0),
+    open: Number(row.open ?? 0),
+    inProgress: Number(row.inProgress ?? row.in_progress ?? 0),
+    waiting: Number(row.waiting ?? 0),
+  }));
 }
 
 function mapCannedReply(row: Record<string, unknown>): CannedReply {

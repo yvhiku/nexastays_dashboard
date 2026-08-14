@@ -15,6 +15,7 @@ export function TicketList({
   emptyDescription,
   hasPrevious,
   hasNext,
+  assigneeLabelFor,
   onSelect,
   onPrevious,
   onNext,
@@ -28,6 +29,7 @@ export function TicketList({
   emptyDescription: string | null;
   hasPrevious: boolean;
   hasNext: boolean;
+  assigneeLabelFor?: (ticket: Ticket) => string | null;
   onSelect: (ticket: Ticket) => void;
   onPrevious: () => void;
   onNext: () => void;
@@ -53,6 +55,7 @@ export function TicketList({
                   ticket={ticket}
                   selected={selectedId === ticket.id}
                   onSelect={() => onSelect(ticket)}
+                  assigneeLabel={assigneeLabelFor?.(ticket)}
                 />
               </li>
             ))}

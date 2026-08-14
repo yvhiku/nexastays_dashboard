@@ -6,7 +6,24 @@ export function senderLabel(senderType: TicketMessage["senderType"]) {
   return "Customer";
 }
 
-export function formatActivityAction(action: string) {
+export function formatActivityAction(
+  action: string,
+  metadata?: Record<string, unknown>,
+  agentNames?: Record<string, string>,
+) {
+  if (action === "support_ticket_assigned") {
+    const toId = (metadata?.toAdminId ?? metadata?.to_admin_id) as string | null | undefined;
+    const fromId = (metadata?.fromAdminId ?? metadata?.from_admin_id) as
+      | string
+      | null
+      | undefined;
+    const nameFor = (id: string | null | undefined) =>
+      id ? agentNames?.[id] ?? "unavailable agent" : null;
+    if (!toId) {
+      return fromId ? `Unassigned from ${nameFor(fromId)}` : "Unassigned";
+    }
+    return `Assigned to ${nameFor(toId)}`;
+  }
   return action.replace(/_/g, " ");
 }
 

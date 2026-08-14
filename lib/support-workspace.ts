@@ -18,6 +18,11 @@ export type SupportWorkspaceConfig = {
   allowedAssignmentScopes: AssignmentScope[];
   defaultAssignmentScope: AssignmentScope;
   canChangeAssignment: boolean;
+  canAssignTickets: boolean;
+  canReassignTickets: boolean;
+  canUnassignTickets: boolean;
+  canViewAgentWorkload: boolean;
+  canManageSupportAgents: boolean;
   canChangePriority: boolean;
   canViewAssignmentFilters: boolean;
   canViewSlaFilters: boolean;
@@ -70,6 +75,11 @@ export function getSupportWorkspaceConfig(
       allowedAssignmentScopes: ["mine"],
       defaultAssignmentScope: "mine",
       canChangeAssignment: false,
+      canAssignTickets: false,
+      canReassignTickets: false,
+      canUnassignTickets: false,
+      canViewAgentWorkload: false,
+      canManageSupportAgents: false,
       canChangePriority: false,
       canViewAssignmentFilters: false,
       canViewSlaFilters: false,
@@ -95,6 +105,11 @@ export function getSupportWorkspaceConfig(
     allowedAssignmentScopes: ["all", "mine", "unassigned"],
     defaultAssignmentScope: "all",
     canChangeAssignment: true,
+    canAssignTickets: true,
+    canReassignTickets: true,
+    canUnassignTickets: true,
+    canViewAgentWorkload: true,
+    canManageSupportAgents: true,
     canChangePriority: true,
     canViewAssignmentFilters: true,
     canViewSlaFilters: true,

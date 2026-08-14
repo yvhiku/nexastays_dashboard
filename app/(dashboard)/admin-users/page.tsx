@@ -5,6 +5,7 @@ import { UserCog } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Avatar } from "@/components/ui/avatar";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
 import { useAuth } from "@/components/providers/auth-provider";
@@ -14,6 +15,10 @@ import {
   type StaffAccount,
   type StaffRole,
 } from "@/lib/api/identity-admin";
+import {
+  fetchSupportAgentWorkload,
+  type SupportAgentWorkload,
+} from "@/lib/api/stays-admin";
 import { useAsyncList } from "@/lib/hooks/use-async-data";
 import { isSuperAdmin } from "@/lib/rbac";
 
@@ -27,7 +32,7 @@ const ROLE_CATALOG = [
   {
     id: "SUPPORT_AGENT",
     name: "Support Agent",
-    description: "Support-only shell. Ticket APIs stay closed until Phase 2. Live.",
+    description: "Support inbox for assigned tickets. Super Admins assign work from Support.",
     live: true,
   },
   {
@@ -66,10 +71,33 @@ function roleLabel(role: StaffRole) {
   return role === "SUPPORT_AGENT" ? "Support Agent" : "Super Admin";
 }
 
+function WorkloadStats({ row }: { row?: SupportAgentWorkload }) {
+  const stats = [
+    { label: "Assigned", value: row?.assigned ?? 0 },
+    { label: "Open", value: row?.open ?? 0 },
+    { label: "In progress", value: row?.inProgress ?? 0 },
+    { label: "Waiting", value: row?.waiting ?? 0 },
+  ];
+  return (
+    <div className="grid grid-cols-4 gap-2 text-center">
+      {stats.map((stat) => (
+        <div key={stat.label} className="rounded-md bg-nexa-bg-2 px-2 py-1.5">
+          <p className="text-sm font-semibold text-nexa-ink">{stat.value}</p>
+          <p className="text-[10px] text-nexa-ink-4">{stat.label}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function AdminUsersPage() {
   const { session } = useAuth();
   const canManage = isSuperAdmin(session);
   const { data: staff, loading, error, reload } = useAsyncList(fetchStaffAccounts, []);
+  const { data: workload } = useAsyncList(
+    () => (canManage ? fetchSupportAgentWorkload() : Promise.resolve([])),
+    [canManage],
+  );
   const [pending, setPending] = useState<{
     user: StaffAccount;
     next: StaffRole;
@@ -89,6 +117,12 @@ export default function AdminUsersPage() {
         (a.email ?? a.id).localeCompare(b.email ?? b.id),
       ),
     [staff],
+  );
+  const superAdmins = sortedStaff.filter((user) => user.staffRole === "ADMIN");
+  const supportAgents = sortedStaff.filter((user) => user.staffRole === "SUPPORT_AGENT");
+  const workloadById = useMemo(
+    () => new Map(workload.map((row) => [row.agentId, row])),
+    [workload],
   );
 
   async function confirmRoleChange() {
@@ -150,7 +184,7 @@ export default function AdminUsersPage() {
             <CardTitle>Staff roles</CardTitle>
             <CardDescription>
               Changing a role invalidates that person&apos;s outstanding access tokens.
-              Do not assign Support Agent for production work until ticket isolation ships.
+              Tickets stay assigned when a role or freeze changes.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -165,45 +199,24 @@ export default function AdminUsersPage() {
             ) : sortedStaff.length === 0 ? (
               <EmptyState title="No staff accounts" description="ADMIN accounts will appear here." />
             ) : (
-              <div className="divide-y divide-nexa-line">
-                {sortedStaff.map((user) => {
-                  const isSelf = user.id === session?.userId;
-                  return (
-                    <div
-                      key={user.id}
-                      className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-nexa-ink">
-                          {user.fullName || user.email || user.id}
-                        </p>
-                        <p className="truncate text-xs text-nexa-ink-4">
-                          {user.email ?? user.id}
-                          {isSelf ? " · you" : ""}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant={user.staffRole === "ADMIN" ? "primary" : "neutral"}>
-                          {roleLabel(user.staffRole)}
-                        </Badge>
-                        <select
-                          className="h-8 rounded-md border border-nexa-line bg-white px-2 text-xs"
-                          value={user.staffRole}
-                          disabled={isSelf || busy}
-                          onChange={(e) => {
-                            const next = e.target.value as StaffRole;
-                            if (next === user.staffRole) return;
-                            setPending({ user, next });
-                          }}
-                          aria-label={`Staff role for ${user.email ?? user.id}`}
-                        >
-                          <option value="ADMIN">Super Admin</option>
-                          <option value="SUPPORT_AGENT">Support Agent</option>
-                        </select>
-                      </div>
-                    </div>
-                  );
-                })}
+              <div className="space-y-8">
+                <StaffGroup
+                  title="Super Admins"
+                  empty="No Super Admins."
+                  users={superAdmins}
+                  sessionUserId={session?.userId}
+                  busy={busy}
+                  onRoleChange={(user, next) => setPending({ user, next })}
+                />
+                <StaffGroup
+                  title="Support Agents"
+                  empty="No Support Agents."
+                  users={supportAgents}
+                  sessionUserId={session?.userId}
+                  busy={busy}
+                  workloadById={workloadById}
+                  onRoleChange={(user, next) => setPending({ user, next })}
+                />
               </div>
             )}
           </CardContent>
@@ -250,5 +263,77 @@ export default function AdminUsersPage() {
         }}
       />
     </div>
+  );
+}
+
+function StaffGroup({
+  title,
+  empty,
+  users,
+  sessionUserId,
+  busy,
+  workloadById,
+  onRoleChange,
+}: {
+  title: string;
+  empty: string;
+  users: StaffAccount[];
+  sessionUserId?: string;
+  busy: boolean;
+  workloadById?: Map<string, SupportAgentWorkload>;
+  onRoleChange: (user: StaffAccount, next: StaffRole) => void;
+}) {
+  return (
+    <section>
+      <h3 className="mb-2 text-sm font-semibold text-nexa-ink">{title}</h3>
+      {users.length === 0 ? (
+        <p className="text-sm text-nexa-ink-4">{empty}</p>
+      ) : (
+        <div className="divide-y divide-nexa-line">
+          {users.map((user) => {
+            const isSelf = user.id === sessionUserId;
+            const name = user.fullName || user.email || user.id;
+            const showWorkload = Boolean(workloadById);
+            return (
+              <div key={user.id} className="flex flex-col gap-3 py-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex min-w-0 items-center gap-3">
+                    {showWorkload ? <Avatar name={name} size="sm" /> : null}
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-nexa-ink">{name}</p>
+                      <p className="truncate text-xs text-nexa-ink-4">
+                        {user.email ?? user.id}
+                        {isSelf ? " · you" : ""}
+                        {` · ${user.accountStatus}`}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={user.staffRole === "ADMIN" ? "primary" : "neutral"}>
+                      {roleLabel(user.staffRole)}
+                    </Badge>
+                    <select
+                      className="h-8 rounded-md border border-nexa-line bg-white px-2 text-xs"
+                      value={user.staffRole}
+                      disabled={isSelf || busy}
+                      onChange={(e) => {
+                        const next = e.target.value as StaffRole;
+                        if (next === user.staffRole) return;
+                        onRoleChange(user, next);
+                      }}
+                      aria-label={`Staff role for ${user.email ?? user.id}`}
+                    >
+                      <option value="ADMIN">Super Admin</option>
+                      <option value="SUPPORT_AGENT">Support Agent</option>
+                    </select>
+                  </div>
+                </div>
+                {showWorkload ? <WorkloadStats row={workloadById?.get(user.id)} /> : null}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
   );
 }

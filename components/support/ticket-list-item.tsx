@@ -10,10 +10,12 @@ export function TicketListItem({
   ticket,
   selected,
   onSelect,
+  assigneeLabel,
 }: {
   ticket: Ticket;
   selected: boolean;
   onSelect: () => void;
+  assigneeLabel?: string | null;
 }) {
   const sla = ticketSlaChip(ticket);
   const preview = ticket.lastMessagePreview?.trim();
@@ -37,6 +39,9 @@ export function TicketListItem({
         {ticket.party === "HOST" ? " · Host" : " · Guest"}
         {preview ? ` · ${preview}` : ""}
       </p>
+      {assigneeLabel ? (
+        <p className="mt-0.5 truncate text-[11px] text-nexa-ink-4">{assigneeLabel}</p>
+      ) : null}
       <div className="mt-1.5 flex items-center justify-between gap-2">
         {ticket.updatedAt ? (
           <RelativeTime value={ticket.updatedAt} className="text-[11px] text-nexa-ink-4" />

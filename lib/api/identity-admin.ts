@@ -153,6 +153,42 @@ export async function fetchStaffAccounts(): Promise<StaffAccount[]> {
   }));
 }
 
+export type SupportAgent = {
+  id: string;
+  fullName: string | null;
+  email: string | null;
+  profilePhotoUrl: string | null;
+  status: string;
+  staffRole: "SUPPORT_AGENT";
+};
+
+export function supportAgentDisplayName(
+  agent: Pick<SupportAgent, "fullName" | "email" | "id">,
+): string {
+  return agent.fullName?.trim() || agent.email?.trim() || agent.id;
+}
+
+export async function fetchSupportAgents(): Promise<SupportAgent[]> {
+  const result = await apiFetch<{
+    items?: Array<{
+      id: string;
+      full_name?: string | null;
+      email?: string | null;
+      profile_photo_url?: string | null;
+      status?: string;
+      staff_role?: string;
+    }>;
+  }>("/admin/users/support-agents", { base: "identity" });
+  return (result.items ?? []).map((row) => ({
+    id: row.id,
+    fullName: row.full_name ?? null,
+    email: row.email ?? null,
+    profilePhotoUrl: row.profile_photo_url ?? null,
+    status: row.status ?? "ACTIVE",
+    staffRole: "SUPPORT_AGENT",
+  }));
+}
+
 export async function updateStaffRole(
   userId: string,
   staffRole: StaffRole,

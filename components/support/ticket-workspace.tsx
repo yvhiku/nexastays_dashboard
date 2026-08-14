@@ -14,7 +14,9 @@ import {
   fetchTicketNotes,
   sendTicketMessage,
   patchTicket,
+  type SupportAgentWithWorkload,
 } from "@/lib/api/stays-admin";
+import { supportAgentDisplayName } from "@/lib/api/identity-admin";
 import { ApiError } from "@/lib/api/client";
 import type {
   BookingDetail,
@@ -35,6 +37,7 @@ import { TicketChat } from "./ticket-chat";
 import { TicketComposer } from "./ticket-composer";
 import { TicketDetails } from "./ticket-details";
 import { TicketDetailsSheet } from "./ticket-details-sheet";
+import { TicketAssignmentPicker } from "./ticket-assignment-picker";
 import { statusMatchesFilter } from "./labels";
 
 export function TicketWorkspace({
@@ -43,18 +46,22 @@ export function TicketWorkspace({
   selectedId,
   filter,
   selectedRefreshError,
+  agents,
   onRetrySelected,
   onClose,
   onChanged,
+  onTicketPatched,
 }: {
   workspaceConfig: SupportWorkspaceConfig;
   ticket: Ticket | null;
   selectedId: string | null;
   filter: string;
   selectedRefreshError: string | null;
+  agents: SupportAgentWithWorkload[];
   onRetrySelected: () => void;
   onClose: () => void;
   onChanged: () => Promise<void> | void;
+  onTicketPatched?: (ticket: Ticket) => void;
 }) {
   const [detail, setDetail] = useState<TicketDetail | null>(null);
   const [messages, setMessages] = useState<TicketMessage[]>([]);
@@ -70,6 +77,8 @@ export function TicketWorkspace({
   const [statusChanging, setStatusChanging] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [assignBusy, setAssignBusy] = useState(false);
   const [pinToLatest, setPinToLatest] = useState(0);
   const ticketIdRef = useRef<string | null>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -88,6 +97,7 @@ export function TicketWorkspace({
       setListingDetail(null);
       setDetail(null);
       setDetailsOpen(false);
+      setAssignOpen(false);
       ticketIdRef.current = ticketId;
     }
     if (!ticket || ticket.id === "lookup") {
@@ -232,8 +242,9 @@ export function TicketWorkspace({
     setStatusChanging(true);
     setStatusError(null);
     try {
-      await patchTicket(ticket.id, { status });
-      await refreshDetail();
+      const next = await patchTicket(ticket.id, { status });
+      setDetail((prev) => (prev ? { ...prev, ...next } : prev));
+      onTicketPatched?.(next);
       await onChanged();
       await refreshActivity();
     } catch (err) {
@@ -247,8 +258,9 @@ export function TicketWorkspace({
     if (!workspaceConfig.canChangePriority) return;
     if (!ticket || ticket.id === "lookup") return;
     try {
-      await patchTicket(ticket.id, { priority });
-      await refreshDetail();
+      const next = await patchTicket(ticket.id, { priority });
+      setDetail((prev) => (prev ? { ...prev, ...next } : prev));
+      onTicketPatched?.(next);
       await onChanged();
       await refreshActivity();
     } catch (err) {
@@ -256,34 +268,28 @@ export function TicketWorkspace({
     }
   }
 
-  async function assignSelf() {
-    if (!workspaceConfig.canChangeAssignment) return;
-    if (!ticket || ticket.id === "lookup") return;
-    const adminId = workspaceConfig.currentUserId;
-    if (!adminId) {
-      setStatusError("Your admin session has no user id to assign.");
+  async function assignTo(agentId: string | null) {
+    if (
+      agentId
+        ? !workspaceConfig.canAssignTickets && !workspaceConfig.canReassignTickets
+        : !workspaceConfig.canUnassignTickets
+    ) {
       return;
     }
-    try {
-      await patchTicket(ticket.id, { assigned_admin_id: adminId });
-      await refreshDetail();
-      await onChanged();
-      await refreshActivity();
-    } catch (err) {
-      setStatusError(err instanceof Error ? err.message : "Failed to assign");
-    }
-  }
-
-  async function unassign() {
-    if (!workspaceConfig.canChangeAssignment) return;
     if (!ticket || ticket.id === "lookup") return;
+    setAssignBusy(true);
+    setStatusError(null);
     try {
-      await patchTicket(ticket.id, { assigned_admin_id: null });
-      await refreshDetail();
+      const next = await patchTicket(ticket.id, { assigned_admin_id: agentId });
+      setDetail((prev) => (prev ? { ...prev, ...next } : prev));
+      onTicketPatched?.(next);
+      setAssignOpen(false);
       await onChanged();
       await refreshActivity();
     } catch (err) {
-      setStatusError(err instanceof Error ? err.message : "Failed to unassign");
+      setStatusError(err instanceof Error ? err.message : "Failed to update assignment");
+    } finally {
+      setAssignBusy(false);
     }
   }
 
@@ -350,6 +356,9 @@ export function TicketWorkspace({
       noteDraft={noteDraft}
       noteSaving={noteSaving}
       activity={activity}
+      agentNames={Object.fromEntries(
+        agents.map((agent) => [agent.id, supportAgentDisplayName(agent)]),
+      )}
       onNoteDraftChange={setNoteDraft}
       onSaveNote={() => void saveNote()}
       onSignalAcknowledged={(next: OperationalSignal) =>
@@ -370,6 +379,7 @@ export function TicketWorkspace({
       <TicketHeader
         workspaceConfig={workspaceConfig}
         ticket={live}
+        agents={agents}
         isLookup={ticket.id === "lookup"}
         statusChanging={statusChanging}
         showBack
@@ -379,8 +389,7 @@ export function TicketWorkspace({
         onDetails={() => setDetailsOpen(true)}
         onStatusChange={(status) => void changeStatus(status)}
         onPriorityChange={(priority) => void changePriority(priority)}
-        onAssignSelf={() => void assignSelf()}
-        onUnassign={() => void unassign()}
+        onOpenAssign={() => setAssignOpen(true)}
       />
       {selectedRefreshError && (
         <div className="flex shrink-0 items-center justify-between gap-2 border-b border-nexa-danger/20 bg-nexa-danger-soft px-3 py-1.5 text-xs text-nexa-danger">
@@ -425,6 +434,17 @@ export function TicketWorkspace({
       <TicketDetailsSheet open={detailsOpen} onClose={() => setDetailsOpen(false)}>
         {details}
       </TicketDetailsSheet>
+      {workspaceConfig.canAssignTickets && (
+        <TicketAssignmentPicker
+          open={assignOpen}
+          ticket={live}
+          agents={agents}
+          busy={assignBusy}
+          onClose={() => setAssignOpen(false)}
+          onAssign={(agentId) => void assignTo(agentId)}
+          onUnassign={() => void assignTo(null)}
+        />
+      )}
     </div>
   );
 }

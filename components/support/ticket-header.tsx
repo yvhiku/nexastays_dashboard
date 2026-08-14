@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/badge";
 import type { Ticket, TicketPriority, TicketStatus } from "@/lib/types";
 import type { SupportWorkspaceConfig } from "@/lib/support-workspace";
+import { supportAgentDisplayName, type SupportAgent } from "@/lib/api/identity-admin";
 
 const STATUS_ACTIONS: TicketStatus[] = [
   "IN_PROGRESS",
@@ -20,6 +21,7 @@ const selectClass =
 export function TicketHeader({
   workspaceConfig,
   ticket,
+  agents,
   isLookup,
   statusChanging,
   showBack,
@@ -29,11 +31,11 @@ export function TicketHeader({
   onDetails,
   onStatusChange,
   onPriorityChange,
-  onAssignSelf,
-  onUnassign,
+  onOpenAssign,
 }: {
   workspaceConfig: SupportWorkspaceConfig;
   ticket: Ticket;
+  agents: SupportAgent[];
   isLookup: boolean;
   statusChanging: boolean;
   showBack: boolean;
@@ -43,14 +45,32 @@ export function TicketHeader({
   onDetails: () => void;
   onStatusChange: (status: TicketStatus) => void;
   onPriorityChange: (priority: TicketPriority) => void;
-  onAssignSelf: () => void;
-  onUnassign: () => void;
+  onOpenAssign: () => void;
 }) {
   const statusOptions = Array.from(new Set([ticket.status, ...STATUS_ACTIONS]));
   const assignedToYou =
     Boolean(ticket.assignee) &&
     Boolean(workspaceConfig.currentUserId) &&
     ticket.assignee === workspaceConfig.currentUserId;
+  const assignedAgent = ticket.assignee
+    ? agents.find((agent) => agent.id === ticket.assignee)
+    : undefined;
+  const canAssign =
+    workspaceConfig.canAssignTickets ||
+    workspaceConfig.canReassignTickets ||
+    workspaceConfig.canUnassignTickets;
+
+  let assignmentLabel = "Unassigned";
+  let assignmentAction: string | null = "Assign";
+  if (ticket.assignee) {
+    if (assignedAgent && assignedAgent.status === "ACTIVE") {
+      assignmentLabel = `Assigned to ${supportAgentDisplayName(assignedAgent)}`;
+      assignmentAction = "Change";
+    } else {
+      assignmentLabel = "Assigned to unavailable agent";
+      assignmentAction = "Change";
+    }
+  }
 
   return (
     <div className="shrink-0 border-b border-nexa-line px-3 py-2.5">
@@ -110,16 +130,15 @@ export function TicketHeader({
               ))}
             </select>
           )}
-          {workspaceConfig.canChangeAssignment ? (
-            ticket.assignee ? (
-              <Button size="sm" variant="outline" onClick={onUnassign}>
-                Unassign
-              </Button>
-            ) : (
-              <Button size="sm" variant="outline" onClick={onAssignSelf}>
-                Assign to me
-              </Button>
-            )
+          {canAssign ? (
+            <>
+              <p className="text-xs text-nexa-ink-3">{assignmentLabel}</p>
+              {assignmentAction && (
+                <Button size="sm" variant="outline" onClick={onOpenAssign}>
+                  {assignmentAction}
+                </Button>
+              )}
+            </>
           ) : assignedToYou ? (
             <p className="text-xs text-nexa-ink-3">Assigned to you</p>
           ) : null}

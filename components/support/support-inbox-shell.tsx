@@ -10,6 +10,8 @@ import type {
   SupportStatusFilter,
   SupportWorkspaceConfig,
 } from "@/lib/support-workspace";
+import type { SupportAgentWithWorkload } from "@/lib/api/stays-admin";
+import { supportAgentDisplayName } from "@/lib/api/identity-admin";
 import { TicketList } from "./ticket-list";
 import { TicketWorkspace } from "./ticket-workspace";
 
@@ -32,11 +34,13 @@ export function SupportInboxShell({
   searchInput,
   lookupRef,
   ticketCount,
+  agents,
   onRetry,
   onRetrySelected,
   onSelect,
   onClose,
   onChanged,
+  onTicketPatched,
   onPrevious,
   onNext,
   onFilterChange,
@@ -62,11 +66,13 @@ export function SupportInboxShell({
   searchInput: string;
   lookupRef: string;
   ticketCount: number;
+  agents: SupportAgentWithWorkload[];
   onRetry: () => void;
   onRetrySelected: () => void;
   onSelect: (ticket: Ticket) => void;
   onClose: () => void;
   onChanged: () => Promise<void> | void;
+  onTicketPatched?: (ticket: Ticket) => void;
   onPrevious: () => void;
   onNext: () => void;
   onFilterChange: (value: SupportStatusFilter) => void;
@@ -78,6 +84,12 @@ export function SupportInboxShell({
 }) {
   const hasSelection = Boolean(selectedId);
   const isAgent = workspaceConfig.mode === "AGENT";
+  const unassignedQueue = assignmentScope === "unassigned";
+  const queueTitle = unassignedQueue ? "Unassigned Tickets" : workspaceConfig.queueTitle;
+  const emptyTitle = unassignedQueue ? "No unassigned tickets" : workspaceConfig.emptyTitle;
+  const emptyDescription = unassignedQueue
+    ? "New tickets without an assigned support agent will appear here."
+    : workspaceConfig.emptyDescription;
   const statusOptions = workspaceConfig.statusFilterOptions.map((option) => ({
     ...option,
     count:
@@ -92,14 +104,19 @@ export function SupportInboxShell({
           hasSelection && "hidden lg:block",
         )}
       >
-        {isAgent && (
+        {(isAgent || unassignedQueue) && (
           <div className="mb-3">
             <p className="text-xs font-medium uppercase tracking-wide text-nexa-ink-4">
               Support
             </p>
             <h1 className="font-display text-lg font-semibold text-nexa-ink">
-              {workspaceConfig.queueTitle}
+              {queueTitle}
             </h1>
+            {unassignedQueue ? (
+              <p className="mt-0.5 text-xs text-nexa-ink-4">
+                {ticketCount} unassigned
+              </p>
+            ) : null}
           </div>
         )}
         <div className="flex flex-wrap items-center gap-2">
@@ -170,10 +187,22 @@ export function SupportInboxShell({
             loading={loading}
             error={error}
             pageLabel={pageLabel}
-            emptyTitle={workspaceConfig.emptyTitle}
-            emptyDescription={workspaceConfig.emptyDescription}
+            emptyTitle={emptyTitle}
+            emptyDescription={emptyDescription}
             hasPrevious={hasPrevious}
             hasNext={hasNext}
+            assigneeLabelFor={
+              isAgent
+                ? undefined
+                : (ticket) => {
+                    if (!ticket.assignee) return "Unassigned";
+                    const agent = agents.find((row) => row.id === ticket.assignee);
+                    if (agent && agent.status === "ACTIVE") {
+                      return supportAgentDisplayName(agent);
+                    }
+                    return "Unavailable agent";
+                  }
+            }
             onSelect={onSelect}
             onPrevious={onPrevious}
             onNext={onNext}
@@ -191,9 +220,11 @@ export function SupportInboxShell({
             selectedId={selectedId}
             filter={filter}
             selectedRefreshError={selectedRefreshError}
+            agents={agents}
             onRetrySelected={onRetrySelected}
             onClose={onClose}
             onChanged={onChanged}
+            onTicketPatched={onTicketPatched}
           />
         </div>
       </div>

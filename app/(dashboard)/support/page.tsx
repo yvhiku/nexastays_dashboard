@@ -3,7 +3,15 @@
 import { useCallback, useEffect, useMemo, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/providers/auth-provider";
-import { fetchTicket, fetchTickets, type TicketsResult } from "@/lib/api/stays-admin";
+import {
+  fetchTicket,
+  fetchTickets,
+  fetchSupportAgentWorkload,
+  joinSupportAgentsWithWorkload,
+  type SupportAgentWithWorkload,
+  type TicketsResult,
+} from "@/lib/api/stays-admin";
+import { fetchSupportAgents } from "@/lib/api/identity-admin";
 import type { Ticket } from "@/lib/types";
 import { SupportInboxShell } from "@/components/support/support-inbox-shell";
 import {
@@ -75,6 +83,7 @@ function SupportInboxPage() {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [agents, setAgents] = useState<SupportAgentWithWorkload[]>([]);
 
   const syncTicketUrl = useCallback(
     (ticketId: string | null) => {
@@ -154,6 +163,24 @@ function SupportInboxPage() {
   }, [workspaceConfig.defaultAssignmentScope]);
 
   useEffect(() => {
+    if (!workspaceConfig.canViewAgentWorkload) {
+      setAgents([]);
+      return;
+    }
+    let cancelled = false;
+    void Promise.all([fetchSupportAgents(), fetchSupportAgentWorkload()])
+      .then(([roster, workload]) => {
+        if (!cancelled) setAgents(joinSupportAgentsWithWorkload(roster, workload));
+      })
+      .catch(() => {
+        if (!cancelled) setAgents([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceConfig.canViewAgentWorkload]);
+
+  useEffect(() => {
     void loadTickets(false);
   }, [loadTickets]);
 
@@ -230,6 +257,7 @@ function SupportInboxPage() {
       searchInput={searchInput}
       lookupRef={lookupRef}
       ticketCount={data.total}
+      agents={agents}
       onRetry={() => void loadTickets(false)}
       onRetrySelected={() => {
         if (selectedId && selectedId !== "lookup") void refreshSelectedTicket(selectedId);
@@ -244,9 +272,9 @@ function SupportInboxPage() {
       onClose={clearSelection}
       onChanged={async () => {
         await loadTickets(true);
-        if (selectedId && selectedId !== "lookup") {
-          await refreshSelectedTicket(selectedId);
-        }
+      }}
+      onTicketPatched={(ticket) => {
+        setSelectedTicket(ticket);
       }}
       onPrevious={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
       onNext={() => setOffset(offset + PAGE_SIZE)}

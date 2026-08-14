@@ -33,6 +33,7 @@ export function TicketDetails({
   noteDraft,
   noteSaving,
   activity,
+  agentNames,
   onNoteDraftChange,
   onSaveNote,
   onSignalAcknowledged,
@@ -46,6 +47,7 @@ export function TicketDetails({
   noteDraft: string;
   noteSaving: boolean;
   activity: SupportActivityItem[];
+  agentNames?: Record<string, string>;
   onNoteDraftChange: (value: string) => void;
   onSaveNote: () => void;
   onSignalAcknowledged: (next: OperationalSignal) => void;
@@ -315,7 +317,7 @@ export function TicketDetails({
                 activity.map((a) => (
                   <div key={a.id} className="text-xs text-nexa-ink-3">
                     <span className="font-medium text-nexa-ink">
-                      {formatActivityAction(a.action)}
+                      {formatActivityAction(a.action, a.metadata, agentNames)}
                     </span>
                     {a.createdAt ? ` · ${formatDateTime(a.createdAt)}` : ""}
                   </div>
