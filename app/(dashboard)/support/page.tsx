@@ -1,17 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/providers/auth-provider";
 import { fetchTicket, fetchTickets, type TicketsResult } from "@/lib/api/stays-admin";
 import type { Ticket } from "@/lib/types";
+import { SupportInboxShell } from "@/components/support/support-inbox-shell";
 import {
-  SupportInboxShell,
+  getSupportWorkspaceConfig,
   type AssignmentScope,
   type SlaScope,
   type SupportStatusFilter,
-} from "@/components/support/support-inbox-shell";
-import { isSupportAgent } from "@/lib/rbac";
+} from "@/lib/support-workspace";
 import { ApiError } from "@/lib/api/client";
 
 const PAGE_SIZE = 50;
@@ -24,6 +24,16 @@ function statusQuery(filter: SupportStatusFilter): string | undefined {
   return filter;
 }
 
+function supportHref(searchParams: URLSearchParams, ticketId: string | null) {
+  const params = new URLSearchParams(searchParams.toString());
+  params.delete("ticket");
+  if (ticketId && ticketId !== "lookup") {
+    params.set("ticket", ticketId);
+  }
+  const qs = params.toString();
+  return qs ? `/support?${qs}` : "/support";
+}
+
 export default function SupportPage() {
   return (
     <Suspense fallback={<p className="py-10 text-center text-sm text-nexa-ink-4">Loading…</p>}>
@@ -33,12 +43,16 @@ export default function SupportPage() {
 }
 
 function SupportInboxPage() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const { session } = useAuth();
-  const agent = isSupportAgent(session);
+  const workspaceConfig = useMemo(
+    () => getSupportWorkspaceConfig(session),
+    [session],
+  );
   const [filter, setFilter] = useState<SupportStatusFilter>("all");
   const [assignmentScope, setAssignmentScope] = useState<AssignmentScope>(
-    agent ? "mine" : "all",
+    workspaceConfig.defaultAssignmentScope,
   );
   const [slaScope, setSlaScope] = useState<SlaScope>("all");
   const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
@@ -62,22 +76,35 @@ function SupportInboxPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const syncTicketUrl = useCallback(
+    (ticketId: string | null) => {
+      const next = supportHref(new URLSearchParams(searchParams.toString()), ticketId);
+      const current = searchParams.toString()
+        ? `/support?${searchParams.toString()}`
+        : "/support";
+      if (next !== current) {
+        router.replace(next, { scroll: false });
+      }
+    },
+    [router, searchParams],
+  );
+
   const loadTickets = useCallback(
     async (silent = false) => {
       if (!silent) setLoading(true);
       setError(null);
+      const scoped = workspaceConfig.allowedAssignmentScopes.includes(assignmentScope)
+        ? assignmentScope
+        : workspaceConfig.defaultAssignmentScope;
       try {
         const next = await fetchTickets({
           limit: PAGE_SIZE,
           offset,
           status: statusQuery(filter),
           search: query.trim() || undefined,
-          unassigned:
-            agent || assignmentScope !== "unassigned" ? undefined : true,
+          unassigned: scoped === "unassigned" ? true : undefined,
           assignedAdminId:
-            (agent || assignmentScope === "mine") && session?.userId
-              ? session.userId
-              : undefined,
+            scoped === "mine" && session?.userId ? session.userId : undefined,
           slaState: slaScope === "all" ? undefined : slaScope,
           requesterUserId,
         });
@@ -88,30 +115,43 @@ function SupportInboxPage() {
         if (!silent) setLoading(false);
       }
     },
-    [filter, offset, query, assignmentScope, slaScope, session?.userId, requesterUserId, agent],
+    [
+      filter,
+      offset,
+      query,
+      assignmentScope,
+      slaScope,
+      session?.userId,
+      requesterUserId,
+      workspaceConfig,
+    ],
   );
 
-  const refreshSelectedTicket = useCallback(async (ticketId: string) => {
-    try {
-      const next = await fetchTicket(ticketId);
-      setSelectedTicket(next);
-      setSelectedRefreshError(null);
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 404) {
-        setSelectedId(null);
-        setSelectedTicket(null);
+  const refreshSelectedTicket = useCallback(
+    async (ticketId: string) => {
+      try {
+        const next = await fetchTicket(ticketId);
+        setSelectedTicket(next);
         setSelectedRefreshError(null);
-        return;
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 404) {
+          setSelectedId(null);
+          setSelectedTicket(null);
+          setSelectedRefreshError(null);
+          syncTicketUrl(null);
+          return;
+        }
+        setSelectedRefreshError(
+          err instanceof Error ? err.message : "Unable to refresh this ticket.",
+        );
       }
-      setSelectedRefreshError(
-        err instanceof Error ? err.message : "Unable to refresh this ticket.",
-      );
-    }
-  }, []);
+    },
+    [syncTicketUrl],
+  );
 
   useEffect(() => {
-    if (agent) setAssignmentScope("mine");
-  }, [agent]);
+    setAssignmentScope(workspaceConfig.defaultAssignmentScope);
+  }, [workspaceConfig.defaultAssignmentScope]);
 
   useEffect(() => {
     void loadTickets(false);
@@ -121,7 +161,12 @@ function SupportInboxPage() {
     setSearchInput(searchParams.get("q") ?? "");
     setQuery(searchParams.get("q") ?? "");
     const ticketParam = searchParams.get("ticket");
-    if (ticketParam) setSelectedId(ticketParam);
+    if (ticketParam) {
+      setSelectedId(ticketParam);
+    } else {
+      setSelectedId((current) => (current === "lookup" ? current : null));
+      setSelectedTicket(null);
+    }
   }, [searchParams]);
 
   useEffect(() => {
@@ -164,10 +209,12 @@ function SupportInboxPage() {
     setSelectedTicket(null);
     setLookupTicket(null);
     setSelectedRefreshError(null);
+    syncTicketUrl(null);
   }
 
   return (
     <SupportInboxShell
+      workspaceConfig={workspaceConfig}
       tickets={tickets}
       selected={selected}
       selectedId={selectedId}
@@ -179,7 +226,6 @@ function SupportInboxPage() {
       hasNext={data.hasMore}
       filter={filter}
       assignmentScope={assignmentScope}
-      showAssignmentScope={!agent}
       slaScope={slaScope}
       searchInput={searchInput}
       lookupRef={lookupRef}
@@ -193,6 +239,7 @@ function SupportInboxPage() {
         setSelectedId(ticket.id);
         setSelectedTicket(ticket);
         setSelectedRefreshError(null);
+        syncTicketUrl(ticket.id === "lookup" ? null : ticket.id);
       }}
       onClose={clearSelection}
       onChanged={async () => {
@@ -208,6 +255,7 @@ function SupportInboxPage() {
         setFilter(value);
       }}
       onAssignmentChange={(value) => {
+        if (!workspaceConfig.allowedAssignmentScopes.includes(value)) return;
         setOffset(0);
         setAssignmentScope(value);
       }}
@@ -218,6 +266,7 @@ function SupportInboxPage() {
       onSearchChange={setSearchInput}
       onLookupRefChange={setLookupRef}
       onLookup={() => {
+        if (!workspaceConfig.canViewBookingLookup) return;
         const lookup: Ticket = {
           id: "lookup",
           ticketNumber: "Lookup",
@@ -236,6 +285,7 @@ function SupportInboxPage() {
         setSelectedId("lookup");
         setSelectedTicket(null);
         setSelectedRefreshError(null);
+        syncTicketUrl(null);
       }}
     />
   );

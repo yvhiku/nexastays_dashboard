@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/components/providers/auth-provider";
 import {
   createTicketNote,
   fetchBookingDetail,
@@ -30,15 +29,16 @@ import type {
   TicketPriority,
   TicketStatus,
 } from "@/lib/types";
+import type { SupportWorkspaceConfig } from "@/lib/support-workspace";
 import { TicketHeader } from "./ticket-header";
 import { TicketChat } from "./ticket-chat";
 import { TicketComposer } from "./ticket-composer";
 import { TicketDetails } from "./ticket-details";
 import { TicketDetailsSheet } from "./ticket-details-sheet";
 import { statusMatchesFilter } from "./labels";
-import { isSupportAgent } from "@/lib/rbac";
 
 export function TicketWorkspace({
+  workspaceConfig,
   ticket,
   selectedId,
   filter,
@@ -47,6 +47,7 @@ export function TicketWorkspace({
   onClose,
   onChanged,
 }: {
+  workspaceConfig: SupportWorkspaceConfig;
   ticket: Ticket | null;
   selectedId: string | null;
   filter: string;
@@ -55,7 +56,6 @@ export function TicketWorkspace({
   onClose: () => void;
   onChanged: () => Promise<void> | void;
 }) {
-  const { session } = useAuth();
   const [detail, setDetail] = useState<TicketDetail | null>(null);
   const [messages, setMessages] = useState<TicketMessage[]>([]);
   const [notes, setNotes] = useState<TicketNote[]>([]);
@@ -72,6 +72,8 @@ export function TicketWorkspace({
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [pinToLatest, setPinToLatest] = useState(0);
   const ticketIdRef = useRef<string | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const fetchOpsContext = workspaceConfig.canFetchOpsContext;
 
   useEffect(() => {
     const ticketId = ticket?.id ?? selectedId;
@@ -90,7 +92,7 @@ export function TicketWorkspace({
     }
     if (!ticket || ticket.id === "lookup") {
       const bookingKey = ticket?.bookingId || ticket?.bookingRef;
-      if (bookingKey) {
+      if (fetchOpsContext && bookingKey) {
         void fetchBookingDetail(bookingKey)
           .then(setBooking)
           .catch(() => setBooking(null));
@@ -99,25 +101,27 @@ export function TicketWorkspace({
     }
 
     let cancelled = false;
-    const listingId = ticket.listingId;
-    if (listingId) {
-      void fetchListingDetail(listingId)
-        .then((next) => {
-          if (!cancelled) setListingDetail(next);
-        })
-        .catch(() => {
-          /* keep last listing detail */
-        });
-    }
-    const bookingKey = ticket.bookingId || ticket.bookingRef;
-    if (bookingKey) {
-      void fetchBookingDetail(bookingKey)
-        .then((next) => {
-          if (!cancelled) setBooking(next);
-        })
-        .catch(() => {
-          /* keep last booking */
-        });
+    if (fetchOpsContext) {
+      const listingId = ticket.listingId;
+      if (listingId) {
+        void fetchListingDetail(listingId)
+          .then((next) => {
+            if (!cancelled) setListingDetail(next);
+          })
+          .catch(() => {
+            /* keep last listing detail */
+          });
+      }
+      const bookingKey = ticket.bookingId || ticket.bookingRef;
+      if (bookingKey) {
+        void fetchBookingDetail(bookingKey)
+          .then((next) => {
+            if (!cancelled) setBooking(next);
+          })
+          .catch(() => {
+            /* keep last booking */
+          });
+      }
     }
 
     void fetchCannedReplies()
@@ -165,7 +169,14 @@ export function TicketWorkspace({
     };
     // Intentionally keyed to ticket identity, not object identity after list reload.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ticket?.id, ticket?.bookingId, ticket?.bookingRef, ticket?.listingId, selectedId]);
+  }, [
+    ticket?.id,
+    ticket?.bookingId,
+    ticket?.bookingRef,
+    ticket?.listingId,
+    selectedId,
+    fetchOpsContext,
+  ]);
 
   async function refreshDetail() {
     if (!ticket || ticket.id === "lookup") return;
@@ -188,6 +199,7 @@ export function TicketWorkspace({
   }
 
   async function send() {
+    if (!workspaceConfig.canReply) return;
     if (!ticket || ticket.id === "lookup" || !reply.trim()) return;
     if ((detail ?? ticket).status === "CLOSED" || statusChanging) return;
     setSending(true);
@@ -210,10 +222,12 @@ export function TicketWorkspace({
       }
     } finally {
       setSending(false);
+      requestAnimationFrame(() => composerRef.current?.focus());
     }
   }
 
   async function changeStatus(status: TicketStatus) {
+    if (!workspaceConfig.canChangeStatus) return;
     if (!ticket || ticket.id === "lookup") return;
     setStatusChanging(true);
     setStatusError(null);
@@ -230,6 +244,7 @@ export function TicketWorkspace({
   }
 
   async function changePriority(priority: TicketPriority) {
+    if (!workspaceConfig.canChangePriority) return;
     if (!ticket || ticket.id === "lookup") return;
     try {
       await patchTicket(ticket.id, { priority });
@@ -242,8 +257,9 @@ export function TicketWorkspace({
   }
 
   async function assignSelf() {
+    if (!workspaceConfig.canChangeAssignment) return;
     if (!ticket || ticket.id === "lookup") return;
-    const adminId = session?.userId;
+    const adminId = workspaceConfig.currentUserId;
     if (!adminId) {
       setStatusError("Your admin session has no user id to assign.");
       return;
@@ -259,6 +275,7 @@ export function TicketWorkspace({
   }
 
   async function unassign() {
+    if (!workspaceConfig.canChangeAssignment) return;
     if (!ticket || ticket.id === "lookup") return;
     try {
       await patchTicket(ticket.id, { assigned_admin_id: null });
@@ -271,6 +288,7 @@ export function TicketWorkspace({
   }
 
   async function saveNote() {
+    if (!workspaceConfig.canCreateNotes) return;
     if (!ticket || ticket.id === "lookup" || !noteDraft.trim()) return;
     setNoteSaving(true);
     setStatusError(null);
@@ -301,7 +319,7 @@ export function TicketWorkspace({
             ) : selectedId ? (
               "Loading ticket…"
             ) : (
-              "Select a ticket or look up a booking to see context."
+              workspaceConfig.emptyWorkspaceHint
             )}
           </CardContent>
         </Card>
@@ -312,13 +330,18 @@ export function TicketWorkspace({
   const live = detail ?? ticket;
   const isClosed = live.status === "CLOSED";
   const composerDisabled =
-    ticket.id === "lookup" || isClosed || statusChanging || sending;
+    ticket.id === "lookup" ||
+    isClosed ||
+    statusChanging ||
+    sending ||
+    !workspaceConfig.canReply;
   const filterMismatchNote =
     ticket.id !== "lookup" && !statusMatchesFilter(live.status, filter)
       ? `This ticket is now ${live.status.replace(/_/g, " ").toLowerCase()}`
       : null;
   const details = (
     <TicketDetails
+      workspaceConfig={workspaceConfig}
       ticket={ticket}
       detail={detail}
       booking={booking}
@@ -345,6 +368,7 @@ export function TicketWorkspace({
   return (
     <div className="relative flex h-full min-h-0 flex-col bg-white">
       <TicketHeader
+        workspaceConfig={workspaceConfig}
         ticket={live}
         isLookup={ticket.id === "lookup"}
         statusChanging={statusChanging}
@@ -357,7 +381,6 @@ export function TicketWorkspace({
         onPriorityChange={(priority) => void changePriority(priority)}
         onAssignSelf={() => void assignSelf()}
         onUnassign={() => void unassign()}
-        hideAssignmentControls={isSupportAgent(session)}
       />
       {selectedRefreshError && (
         <div className="flex shrink-0 items-center justify-between gap-2 border-b border-nexa-danger/20 bg-nexa-danger-soft px-3 py-1.5 text-xs text-nexa-danger">
@@ -391,6 +414,7 @@ export function TicketWorkspace({
             disabled={composerDisabled}
             closed={isClosed}
             sending={sending}
+            textareaRef={composerRef}
             onSend={() => void send()}
           />
         </div>

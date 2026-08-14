@@ -11,6 +11,8 @@ export function TicketList({
   loading,
   error,
   pageLabel,
+  emptyTitle,
+  emptyDescription,
   hasPrevious,
   hasNext,
   onSelect,
@@ -22,6 +24,8 @@ export function TicketList({
   loading: boolean;
   error: string | null;
   pageLabel: string;
+  emptyTitle: string;
+  emptyDescription: string | null;
   hasPrevious: boolean;
   hasNext: boolean;
   onSelect: (ticket: Ticket) => void;
@@ -34,9 +38,12 @@ export function TicketList({
         {loading && tickets.length === 0 ? (
           <p className="py-10 text-center text-sm text-nexa-ink-4">Loading tickets…</p>
         ) : !error && tickets.length === 0 ? (
-          <div className="py-12 text-center">
+          <div className="px-4 py-12 text-center">
             <LifeBuoy className="mx-auto h-10 w-10 text-nexa-ink-4" />
-            <p className="mt-3 text-sm text-nexa-ink-4">No support tickets right now.</p>
+            <p className="mt-3 text-sm font-medium text-nexa-ink">{emptyTitle}</p>
+            {emptyDescription && (
+              <p className="mt-1 text-sm text-nexa-ink-4">{emptyDescription}</p>
+            )}
           </div>
         ) : tickets.length === 0 ? null : (
           <ul className="divide-y divide-nexa-line">

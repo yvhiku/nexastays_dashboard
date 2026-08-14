@@ -4,6 +4,7 @@ import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/badge";
 import type { Ticket, TicketPriority, TicketStatus } from "@/lib/types";
+import type { SupportWorkspaceConfig } from "@/lib/support-workspace";
 
 const STATUS_ACTIONS: TicketStatus[] = [
   "IN_PROGRESS",
@@ -17,6 +18,7 @@ const selectClass =
   "h-8 max-w-[11rem] rounded-md border border-nexa-line bg-white px-2 text-xs text-nexa-ink disabled:bg-nexa-bg-2";
 
 export function TicketHeader({
+  workspaceConfig,
   ticket,
   isLookup,
   statusChanging,
@@ -29,8 +31,8 @@ export function TicketHeader({
   onPriorityChange,
   onAssignSelf,
   onUnassign,
-  hideAssignmentControls = false,
 }: {
+  workspaceConfig: SupportWorkspaceConfig;
   ticket: Ticket;
   isLookup: boolean;
   statusChanging: boolean;
@@ -43,9 +45,12 @@ export function TicketHeader({
   onPriorityChange: (priority: TicketPriority) => void;
   onAssignSelf: () => void;
   onUnassign: () => void;
-  hideAssignmentControls?: boolean;
 }) {
   const statusOptions = Array.from(new Set([ticket.status, ...STATUS_ACTIONS]));
+  const assignedToYou =
+    Boolean(ticket.assignee) &&
+    Boolean(workspaceConfig.currentUserId) &&
+    ticket.assignee === workspaceConfig.currentUserId;
 
   return (
     <div className="shrink-0 border-b border-nexa-line px-3 py-2.5">
@@ -81,7 +86,7 @@ export function TicketHeader({
           <select
             className={selectClass}
             value={ticket.status}
-            disabled={statusChanging}
+            disabled={statusChanging || !workspaceConfig.canChangeStatus}
             aria-label="Ticket status"
             onChange={(e) => onStatusChange(e.target.value as TicketStatus)}
           >
@@ -91,31 +96,33 @@ export function TicketHeader({
               </option>
             ))}
           </select>
-          {!hideAssignmentControls && (
-            <>
-              <select
-                className={selectClass}
-                value={ticket.priority}
-                aria-label="Ticket priority"
-                onChange={(e) => onPriorityChange(e.target.value as TicketPriority)}
-              >
-                {PRIORITIES.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
-              </select>
-              {ticket.assignee ? (
-                <Button size="sm" variant="outline" onClick={onUnassign}>
-                  Unassign
-                </Button>
-              ) : (
-                <Button size="sm" variant="outline" onClick={onAssignSelf}>
-                  Assign to me
-                </Button>
-              )}
-            </>
+          {workspaceConfig.canChangePriority && (
+            <select
+              className={selectClass}
+              value={ticket.priority}
+              aria-label="Ticket priority"
+              onChange={(e) => onPriorityChange(e.target.value as TicketPriority)}
+            >
+              {PRIORITIES.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
           )}
+          {workspaceConfig.canChangeAssignment ? (
+            ticket.assignee ? (
+              <Button size="sm" variant="outline" onClick={onUnassign}>
+                Unassign
+              </Button>
+            ) : (
+              <Button size="sm" variant="outline" onClick={onAssignSelf}>
+                Assign to me
+              </Button>
+            )
+          ) : assignedToYou ? (
+            <p className="text-xs text-nexa-ink-3">Assigned to you</p>
+          ) : null}
         </div>
       )}
       {filterMismatchNote && (

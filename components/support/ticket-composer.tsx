@@ -1,6 +1,6 @@
 "use client";
 
-import type { KeyboardEvent } from "react";
+import type { KeyboardEvent, RefObject } from "react";
 import { Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { CannedReply } from "@/lib/types";
@@ -12,6 +12,7 @@ export function TicketComposer({
   disabled,
   closed,
   sending,
+  textareaRef,
   onSend,
 }: {
   reply: string;
@@ -20,9 +21,11 @@ export function TicketComposer({
   disabled: boolean;
   closed: boolean;
   sending: boolean;
+  textareaRef?: RefObject<HTMLTextAreaElement | null>;
   onSend: () => void;
 }) {
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     if (event.key !== "Enter" || event.shiftKey) return;
     event.preventDefault();
     if (disabled || sending || !reply.trim()) return;
@@ -56,6 +59,7 @@ export function TicketComposer({
       )}
       <div className="flex items-end gap-2">
         <textarea
+          ref={textareaRef}
           value={reply}
           onChange={(e) => onReplyChange(e.target.value)}
           onKeyDown={onKeyDown}

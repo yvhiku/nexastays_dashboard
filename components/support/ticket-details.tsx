@@ -15,6 +15,7 @@ import type {
   TicketDetail,
   TicketNote,
 } from "@/lib/types";
+import type { SupportWorkspaceConfig } from "@/lib/support-workspace";
 import {
   formatActivityAction,
   relationshipLabel,
@@ -23,6 +24,7 @@ import {
 } from "./labels";
 
 export function TicketDetails({
+  workspaceConfig,
   ticket,
   detail,
   booking,
@@ -35,6 +37,7 @@ export function TicketDetails({
   onSaveNote,
   onSignalAcknowledged,
 }: {
+  workspaceConfig: SupportWorkspaceConfig;
   ticket: Ticket;
   detail: TicketDetail | null;
   booking: BookingDetail | null;
@@ -56,7 +59,7 @@ export function TicketDetails({
     listingDetail?.title ??
     detail?.listing?.title ??
     detail?.listingTitle ??
-    (listingId ? listingId : "");
+    "";
   const listingCity = listingDetail?.city ?? detail?.listing?.city ?? "";
   const hostName = listingDetail?.hostName ?? "";
   const reportId = live.reportId ?? detail?.report?.id;
@@ -64,6 +67,8 @@ export function TicketDetails({
   const csat = live.csat ?? detail?.csat;
   const hasListing = Boolean(listingId || listingTitle);
   const hasBooking = Boolean(booking || live.bookingRef || live.bookingId);
+  const opsHref = (kind: "booking" | "listing" | "host" | "report" | "safety", id?: string | null) =>
+    workspaceConfig.canNavigateOpsContext ? ticketContextHref(kind, id) : null;
 
   return (
     <div className="h-full overflow-y-auto p-4 text-sm">
@@ -78,8 +83,8 @@ export function TicketDetails({
           <>
             <ContextLink
               label="Listing"
-              value={listingTitle}
-              href={ticketContextHref("listing", listingId)}
+              value={listingTitle || listingId || ""}
+              href={opsHref("listing", listingId)}
             />
             <ContextBlock label="City" value={listingCity} />
             {listingDetail?.address && (
@@ -91,7 +96,7 @@ export function TicketDetails({
             <ContextLink
               label="Host"
               value={hostName || hostUserId || ""}
-              href={ticketContextHref("host", hostUserId)}
+              href={opsHref("host", hostUserId)}
             />
             {listingDetail?.hostEmail && (
               <ContextBlock label="Host email" value={listingDetail.hostEmail} />
@@ -107,28 +112,28 @@ export function TicketDetails({
           <ContextLink
             label="Report"
             value={detail.report.reason?.trim() || detail.report.id}
-            href={ticketContextHref("report", reportId)}
+            href={opsHref("report", reportId)}
           />
         )}
         {!detail?.report && reportId && (
           <ContextLink
             label="Report"
             value={reportId}
-            href={ticketContextHref("report", reportId)}
+            href={opsHref("report", reportId)}
           />
         )}
         {detail?.safetyIssue && (
           <ContextLink
             label="Safety issue"
             value={detail.safetyIssue.category ?? detail.safetyIssue.id}
-            href={ticketContextHref("safety", safetyIssueId)}
+            href={opsHref("safety", safetyIssueId)}
           />
         )}
         {!detail?.safetyIssue && safetyIssueId && (
           <ContextLink
             label="Safety issue"
             value={safetyIssueId}
-            href={ticketContextHref("safety", safetyIssueId)}
+            href={opsHref("safety", safetyIssueId)}
           />
         )}
       </Section>
@@ -140,8 +145,11 @@ export function TicketDetails({
               <ContextLink
                 label="Booking"
                 value={live.bookingRef}
-                href={ticketContextHref("booking", live.bookingId ?? live.bookingRef)}
+                href={opsHref("booking", live.bookingId ?? live.bookingRef)}
               />
+            )}
+            {!live.bookingRef && live.bookingId && (
+              <ContextBlock label="Booking" value={live.bookingId} />
             )}
             {booking && (
               <>
@@ -162,7 +170,9 @@ export function TicketDetails({
                 )}
               </>
             )}
-            {!booking && (ticket.bookingId || ticket.bookingRef) && (
+            {!booking &&
+              workspaceConfig.canFetchOpsContext &&
+              (ticket.bookingId || ticket.bookingRef) && (
               <p className="mt-3 text-xs text-nexa-ink-4">
                 Booking context could not be loaded for this reference.
               </p>
@@ -205,7 +215,7 @@ export function TicketDetails({
         )}
       </Section>
 
-      {!isLookup && (detail?.signals?.length ?? 0) > 0 && (
+      {workspaceConfig.canViewSignals && !isLookup && (detail?.signals?.length ?? 0) > 0 && (
         <Section title="Operational signals">
           <p className="mt-1 text-[11px] text-nexa-ink-4">
             Advisory flags from deterministic rules. They do not change the ticket.
@@ -256,7 +266,7 @@ export function TicketDetails({
         <>
           <Section title="Internal notes">
             <p className="mt-1 text-[11px] text-nexa-ink-4">
-              Admin-only. Never sent to the customer thread.
+              Internal only. Never sent to the customer thread.
             </p>
             <div className="mt-2 space-y-2">
               {notes.length === 0 ? (
@@ -276,6 +286,7 @@ export function TicketDetails({
                 ))
               )}
             </div>
+            {workspaceConfig.canCreateNotes && (
             <div className="mt-2 flex gap-2">
               <input
                 value={noteDraft}
@@ -293,6 +304,7 @@ export function TicketDetails({
                 Add
               </Button>
             </div>
+            )}
           </Section>
 
           <Section title="Activity">
