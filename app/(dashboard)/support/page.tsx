@@ -19,6 +19,7 @@ import {
   fetchTicketMessages,
   fetchTicketNotes,
   fetchTickets,
+  patchOperationalSignal,
   patchTicket,
   sendTicketMessage,
   ticketContextHref,
@@ -36,10 +37,12 @@ import type {
   TicketNote,
   TicketPriority,
   TicketStatus,
+  OperationalSignal,
 } from "@/lib/types";
 
 type Filter = "all" | TicketStatus;
 type AssignmentScope = "all" | "mine" | "unassigned";
+type SlaScope = "all" | "AT_RISK" | "BREACHED";
 
 const PAGE_SIZE = 50;
 
@@ -75,6 +78,19 @@ function slaLabel(state: string | undefined) {
   return "On track";
 }
 
+function signalChip(type: string) {
+  if (type === "SLA_ATTENTION") return "SLA At Risk";
+  if (type === "SLA_BREACHED") return "SLA Breached";
+  if (type === "REPEAT_REPORT" || type === "REPEAT_SAFETY_REPORT") return "Repeat Reports";
+  if (type === "UNASSIGNED_HIGH_PRIORITY") return "Unassigned High Priority";
+  if (type === "MULTIPLE_OPEN_TICKETS") return "Multiple Open Tickets";
+  return type.replace(/_/g, " ");
+}
+
+function relationshipLabel(value: string) {
+  return value.replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
+}
+
 export default function SupportPage() {
   return (
     <Suspense fallback={<p className="py-10 text-center text-sm text-nexa-ink-4">Loading…</p>}>
@@ -88,6 +104,7 @@ function SupportPageInner() {
   const { session } = useAuth();
   const [filter, setFilter] = useState<Filter>("OPEN");
   const [assignmentScope, setAssignmentScope] = useState<AssignmentScope>("all");
+  const [slaScope, setSlaScope] = useState<SlaScope>("all");
   const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
   const [searchInput, setSearchInput] = useState(() => searchParams.get("q") ?? "");
   const [offset, setOffset] = useState(0);
@@ -120,6 +137,7 @@ function SupportPageInner() {
           assignmentScope === "mine" && session?.userId
             ? session.userId
             : undefined,
+        slaState: slaScope === "all" ? undefined : slaScope,
       });
       setData(next);
     } catch (err) {
@@ -127,7 +145,7 @@ function SupportPageInner() {
     } finally {
       setLoading(false);
     }
-  }, [filter, offset, query, assignmentScope, session?.userId]);
+  }, [filter, offset, query, assignmentScope, slaScope, session?.userId]);
 
   useEffect(() => {
     void loadTickets();
@@ -239,6 +257,21 @@ function SupportPageInner() {
         />
       </div>
 
+      <div className="mb-3">
+        <FilterTabs<SlaScope>
+          value={slaScope}
+          onChange={(value) => {
+            setOffset(0);
+            setSlaScope(value);
+          }}
+          options={[
+            { value: "all", label: "All SLA" },
+            { value: "AT_RISK", label: "At risk" },
+            { value: "BREACHED", label: "Breached" },
+          ]}
+        />
+      </div>
+
       <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <FilterTabs<Filter>
           value={filter}
@@ -304,6 +337,14 @@ function SupportPageInner() {
                       </div>
                       <div className="flex shrink-0 flex-col items-end gap-1">
                         <StatusBadge status={t.status.toLowerCase()} />
+                        {(t.operationalSignalTypes ?? []).slice(0, 2).map((type) => (
+                          <span
+                            key={type}
+                            className="rounded-full border border-nexa-line px-1.5 text-[10px] text-nexa-ink-3"
+                          >
+                            {signalChip(type)}
+                          </span>
+                        ))}
                         {t.unreadForSupport && (
                           <span className="rounded-full bg-nexa-primary px-1.5 text-[10px] font-semibold text-white">
                             New
@@ -832,6 +873,61 @@ function SupportWorkspace({
             </p>
           )}
 
+          {ticket.id !== "lookup" && (detail?.signals?.length ?? 0) > 0 && (
+            <div className="mt-6 border-t border-nexa-line pt-4">
+              <p className="text-xs font-semibold uppercase text-nexa-ink-4">
+                Operational signals
+              </p>
+              <p className="mt-1 text-[11px] text-nexa-ink-4">
+                Advisory flags from deterministic rules. They do not change the ticket.
+              </p>
+              <div className="mt-2 space-y-2">
+                {(detail?.signals ?? []).map((signal) => (
+                  <SignalCard
+                    key={signal.id}
+                    signal={signal}
+                    onAcknowledged={(next) =>
+                      setDetail((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              signals: (prev.signals ?? []).map((s) =>
+                                s.id === next.id ? next : s,
+                              ),
+                            }
+                          : prev,
+                      )
+                    }
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {ticket.id !== "lookup" && (detail?.relatedTickets?.length ?? 0) > 0 && (
+            <div className="mt-6 border-t border-nexa-line pt-4">
+              <p className="text-xs font-semibold uppercase text-nexa-ink-4">
+                Related tickets
+              </p>
+              <ul className="mt-2 space-y-1">
+                {(detail?.relatedTickets ?? []).map((row) => (
+                  <li key={row.id}>
+                    <Link
+                      href={`/support?ticket=${row.id}`}
+                      className="text-sm text-nexa-primary hover:underline"
+                    >
+                      {row.ticketNumber}
+                    </Link>
+                    <span className="text-xs text-nexa-ink-4">
+                      {" "}
+                      · {relationshipLabel(row.relationship)} · {row.status} · {row.priority}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {ticket.id !== "lookup" && (
             <>
               <div className="mt-6 border-t border-nexa-line pt-4">
@@ -904,6 +1000,52 @@ function SupportWorkspace({
         </div>
       </div>
     </Card>
+  );
+}
+
+}
+
+function SignalCard({
+  signal,
+  onAcknowledged,
+}: {
+  signal: OperationalSignal;
+  onAcknowledged: (next: OperationalSignal) => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  async function acknowledge() {
+    setSaving(true);
+    try {
+      onAcknowledged(await patchOperationalSignal(signal.id, "ACKNOWLEDGED"));
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <div className="rounded-md border border-nexa-line bg-nexa-bg-2 px-3 py-2">
+      <p className="text-xs font-semibold text-nexa-ink">
+        {signal.severity} · {signalChip(signal.type)}
+      </p>
+      <p className="mt-1 text-xs text-nexa-ink-3">{signal.reason.explanation}</p>
+      <p className="mt-1 text-[11px] text-nexa-ink-4">
+        First {signal.firstDetectedAt ? formatDateTime(signal.firstDetectedAt) : "—"}
+        {" · "}
+        Last {signal.lastDetectedAt ? formatDateTime(signal.lastDetectedAt) : "—"}
+        {" · "}
+        {signal.status}
+      </p>
+      {signal.status === "ACTIVE" && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="mt-2"
+          disabled={saving}
+          onClick={() => void acknowledge()}
+        >
+          Acknowledge
+        </Button>
+      )}
+    </div>
   );
 }
 

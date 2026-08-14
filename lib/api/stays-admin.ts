@@ -22,6 +22,9 @@ import type {
   TicketDetail,
   TicketMessage,
   TicketNote,
+  OperationalSignal,
+  RelatedSupportTicket,
+  SupportOperationsOverview,
 } from "../types";
 import { apiConfig } from "./config";
 import { apiFetch, getAccessToken, isNotImplemented } from "./client";
@@ -1043,6 +1046,7 @@ export type TicketsQuery = {
   bookingId?: string;
   listingId?: string;
   search?: string;
+  slaState?: "AT_RISK" | "BREACHED";
 };
 
 export type TicketsResult = {
@@ -1117,6 +1121,11 @@ function mapTicket(row: Record<string, unknown>): Ticket {
           submittedAt: String(csatRow.submitted_at ?? csatRow.submittedAt ?? ""),
         }
       : undefined,
+    operationalSignalTypes: Array.isArray(row.operational_signal_types)
+      ? (row.operational_signal_types as string[])
+      : Array.isArray(row.operationalSignalTypes)
+        ? (row.operationalSignalTypes as string[])
+        : [],
   };
 }
 
@@ -1134,6 +1143,7 @@ function ticketsQueryString(query: TicketsQuery): string {
   if (query.requesterUserId) params.set("requesterUserId", query.requesterUserId);
   if (query.bookingId) params.set("bookingId", query.bookingId);
   if (query.listingId) params.set("listingId", query.listingId);
+  if (query.slaState) params.set("slaState", query.slaState);
   if (query.search?.trim()) params.set("search", query.search.trim());
   return params.toString();
 }
@@ -1167,6 +1177,39 @@ export async function fetchOpenTicketCount(): Promise<number> {
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
+
+function mapOperationalSignal(row: Record<string, unknown>): OperationalSignal {
+  const reason = asRecord(row.reason) ?? {};
+  return {
+    id: String(row.id ?? ""),
+    type: String(row.type ?? row.signal_type ?? ""),
+    severity: String(row.severity ?? "INFO") as OperationalSignal["severity"],
+    status: String(row.status ?? "ACTIVE") as OperationalSignal["status"],
+    reason: {
+      code: String(reason.code ?? ""),
+      explanation: String(reason.explanation ?? ""),
+    },
+    firstDetectedAt: String(row.firstDetectedAt ?? row.first_detected_at ?? ""),
+    lastDetectedAt: String(row.lastDetectedAt ?? row.last_detected_at ?? ""),
+    ticketId: (row.ticketId ?? row.ticket_id) as string | null | undefined,
+  };
+}
+
+function mapSignalList(value: unknown): OperationalSignal[] {
+  if (!Array.isArray(value)) return [];
+  return (value as Record<string, unknown>[]).map(mapOperationalSignal);
+}
+
+function mapRelatedTickets(value: unknown): RelatedSupportTicket[] {
+  if (!Array.isArray(value)) return [];
+  return (value as Record<string, unknown>[]).map((row) => ({
+    id: String(row.id ?? ""),
+    ticketNumber: String(row.ticketNumber ?? row.ticket_number ?? ""),
+    status: String(row.status ?? ""),
+    priority: String(row.priority ?? ""),
+    relationship: String(row.relationship ?? ""),
+  }));
 }
 
 export async function fetchTicket(ticketId: string): Promise<TicketDetail> {
@@ -1215,6 +1258,8 @@ export async function fetchTicket(ticketId: string): Promise<TicketDetail> {
         }
       : null,
     csat,
+    signals: mapSignalList(row.signals),
+    relatedTickets: mapRelatedTickets(row.related_tickets ?? row.relatedTickets),
   };
 }
 
@@ -1386,6 +1431,50 @@ export async function fetchSupportAnalytics(query: {
         }))
       : [],
   };
+}
+
+export async function fetchSupportOperationsOverview(): Promise<SupportOperationsOverview> {
+  const data = await apiFetch<Record<string, unknown>>(
+    "/admin/stays/support/operations/overview",
+  );
+  const workload = Array.isArray(data.agentWorkload)
+    ? data.agentWorkload
+    : Array.isArray(data.agent_workload)
+      ? data.agent_workload
+      : [];
+  return {
+    activeTickets: Number(data.activeTickets ?? data.active_tickets ?? 0),
+    unassignedTickets: Number(data.unassignedTickets ?? data.unassigned_tickets ?? 0),
+    highPriorityUnassigned: Number(
+      data.highPriorityUnassigned ?? data.high_priority_unassigned ?? 0,
+    ),
+    urgentTickets: Number(data.urgentTickets ?? data.urgent_tickets ?? 0),
+    slaAtRisk: Number(data.slaAtRisk ?? data.sla_at_risk ?? 0),
+    slaBreached: Number(data.slaBreached ?? data.sla_breached ?? 0),
+    activeSignals: Number(data.activeSignals ?? data.active_signals ?? 0),
+    acknowledgedSignals: Number(
+      data.acknowledgedSignals ?? data.acknowledged_signals ?? 0,
+    ),
+    agentWorkload: (workload as Record<string, unknown>[]).map((row) => ({
+      adminId: String(row.adminId ?? row.admin_id ?? ""),
+      openTickets: Number(row.openTickets ?? row.open_tickets ?? 0),
+      highPriorityTickets: Number(
+        row.highPriorityTickets ?? row.high_priority_tickets ?? 0,
+      ),
+      waitingTickets: Number(row.waitingTickets ?? row.waiting_tickets ?? 0),
+    })),
+  };
+}
+
+export async function patchOperationalSignal(
+  id: string,
+  status: "ACKNOWLEDGED" | "RESOLVED",
+): Promise<OperationalSignal> {
+  const row = await apiFetch<Record<string, unknown>>(
+    `/admin/stays/support/signals/${id}`,
+    { method: "PATCH", body: JSON.stringify({ status }) },
+  );
+  return mapOperationalSignal(row);
 }
 
 function mapTicketNote(row: Record<string, unknown>, ticketId: string): TicketNote {
@@ -1665,6 +1754,7 @@ function mapSafetyReport(row: Record<string, unknown>, includeEvidence = false):
         }
       : null,
     evidenceCount: Number(row.evidence_count ?? row.evidenceCount ?? evidenceRows?.length ?? 0),
+    operationalSignals: mapSignalList(row.operational_signals ?? row.operationalSignals),
     ...(includeEvidence && evidenceRows ? { evidence: evidenceRows } : {}),
   };
 }

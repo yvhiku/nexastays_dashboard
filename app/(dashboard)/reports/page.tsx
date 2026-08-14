@@ -422,6 +422,29 @@ function ReportsPageInner() {
               </div>
             </dl>
 
+            {(selected.operationalSignals?.length ?? 0) > 0 && (
+              <div className="mt-5 rounded-md border border-nexa-line bg-nexa-bg-2 p-3">
+                <p className="text-xs font-semibold uppercase text-nexa-ink-4">
+                  Operational context
+                </p>
+                <p className="mt-1 text-[11px] text-nexa-ink-4">
+                  Advisory only. Does not escalate or change this report.
+                </p>
+                <div className="mt-2 space-y-2">
+                  {selected.operationalSignals!.map((signal) => (
+                    <div key={signal.id}>
+                      <p className="text-sm font-semibold text-nexa-ink">
+                        {signal.severity} · {signal.type.replace(/_/g, " ")}
+                      </p>
+                      <p className="text-xs text-nexa-ink-3">
+                        {signal.reason.explanation}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {(selected.evidence?.length ?? 0) > 0 && (
               <div className="mt-5">
                 <p className="text-xs font-semibold uppercase text-nexa-ink-4">Evidence</p>

@@ -250,6 +250,7 @@ export interface Ticket {
   sla?: SupportSlaPayload;
   routingSuggestion?: { suggestedPriority: TicketPriority; reason: string };
   csat?: TicketCsat | null;
+  operationalSignalTypes?: string[];
 }
 
 export type SupportSlaState = "ON_TRACK" | "AT_RISK" | "BREACHED";
@@ -380,6 +381,53 @@ export interface TicketDetail extends Ticket {
   } | null;
   report?: TicketLinkedReport | null;
   safetyIssue?: TicketLinkedSafetyIssue | null;
+  signals?: OperationalSignal[];
+  relatedTickets?: RelatedSupportTicket[];
+}
+
+export type OperationalSignalType =
+  | "REPEAT_REPORT"
+  | "REPEAT_SAFETY_REPORT"
+  | "MULTIPLE_OPEN_TICKETS"
+  | "SLA_ATTENTION"
+  | "SLA_BREACHED"
+  | "UNASSIGNED_HIGH_PRIORITY"
+  | "LOW_CSAT_PATTERN";
+
+export interface OperationalSignal {
+  id: string;
+  type: string;
+  severity: "INFO" | "LOW" | "MEDIUM" | "HIGH" | "URGENT";
+  status: "ACTIVE" | "ACKNOWLEDGED" | "RESOLVED";
+  reason: { code: string; explanation: string };
+  firstDetectedAt: string;
+  lastDetectedAt: string;
+  ticketId?: string | null;
+}
+
+export interface RelatedSupportTicket {
+  id: string;
+  ticketNumber: string;
+  status: string;
+  priority: string;
+  relationship: string;
+}
+
+export interface SupportOperationsOverview {
+  activeTickets: number;
+  unassignedTickets: number;
+  highPriorityUnassigned: number;
+  urgentTickets: number;
+  slaAtRisk: number;
+  slaBreached: number;
+  activeSignals: number;
+  acknowledgedSignals: number;
+  agentWorkload: {
+    adminId: string;
+    openTickets: number;
+    highPriorityTickets: number;
+    waitingTickets: number;
+  }[];
 }
 
 export interface PaymentRecord {
@@ -447,6 +495,7 @@ export interface SafetyReport {
   ticket?: { id: string; ticketNumber: string; status: string } | null;
   evidenceCount?: number;
   evidence?: TrustEvidence[];
+  operationalSignals?: OperationalSignal[];
 }
 
 export interface RiskFlag {

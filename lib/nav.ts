@@ -15,6 +15,7 @@ import {
   RotateCcw,
   LifeBuoy,
   UserCog,
+  Gauge,
   type LucideIcon,
 } from "lucide-react";
 
@@ -89,6 +90,11 @@ export const navEntries: NavEntry[] = [
           href: "/support",
           icon: LifeBuoy,
           badgeKey: "openTickets",
+        },
+        {
+          label: "Operations",
+          href: "/support/operations",
+          icon: Gauge,
         },
         {
           label: "Support analytics",
