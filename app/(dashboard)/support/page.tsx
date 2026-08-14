@@ -12,8 +12,7 @@ import {
   type SupportStatusFilter,
 } from "@/components/support/support-inbox-shell";
 import { isSupportAgent } from "@/lib/rbac";
-import { PageHeader } from "@/components/ui/page-header";
-import { Card } from "@/components/ui/card";
+import { ApiError } from "@/lib/api/client";
 
 const PAGE_SIZE = 50;
 
@@ -28,56 +27,19 @@ function statusQuery(filter: SupportStatusFilter): string | undefined {
 export default function SupportPage() {
   return (
     <Suspense fallback={<p className="py-10 text-center text-sm text-nexa-ink-4">Loading…</p>}>
-      <SupportPageInner />
+      <SupportInboxPage />
     </Suspense>
   );
-}
-
-function SupportPageInner() {
-  const { session } = useAuth();
-  if (isSupportAgent(session)) {
-    return (
-      <div>
-        <PageHeader
-          title="Support workspace"
-          description="You are signed in as a Support Agent."
-        />
-        <Card className="max-w-xl p-6">
-          <p className="text-sm text-nexa-ink-2">
-            Ticket access will be enabled once assignment isolation is active.
-          </p>
-          <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-            <div>
-              <dt className="text-xs text-nexa-ink-4">Name</dt>
-              <dd className="font-medium text-nexa-ink">{session?.name ?? "—"}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-nexa-ink-4">Email</dt>
-              <dd className="font-medium text-nexa-ink">{session?.email ?? "—"}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-nexa-ink-4">Role</dt>
-              <dd className="font-medium text-nexa-ink">
-                {session?.staffRole || session?.role || "SUPPORT_AGENT"}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-xs text-nexa-ink-4">User ID</dt>
-              <dd className="font-medium text-nexa-ink">{session?.userId ?? "—"}</dd>
-            </div>
-          </dl>
-        </Card>
-      </div>
-    );
-  }
-  return <SupportInboxPage />;
 }
 
 function SupportInboxPage() {
   const searchParams = useSearchParams();
   const { session } = useAuth();
+  const agent = isSupportAgent(session);
   const [filter, setFilter] = useState<SupportStatusFilter>("all");
-  const [assignmentScope, setAssignmentScope] = useState<AssignmentScope>("all");
+  const [assignmentScope, setAssignmentScope] = useState<AssignmentScope>(
+    agent ? "mine" : "all",
+  );
   const [slaScope, setSlaScope] = useState<SlaScope>("all");
   const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
   const [searchInput, setSearchInput] = useState(() => searchParams.get("q") ?? "");
@@ -110,9 +72,12 @@ function SupportInboxPage() {
           offset,
           status: statusQuery(filter),
           search: query.trim() || undefined,
-          unassigned: assignmentScope === "unassigned" ? true : undefined,
+          unassigned:
+            agent || assignmentScope !== "unassigned" ? undefined : true,
           assignedAdminId:
-            assignmentScope === "mine" && session?.userId ? session.userId : undefined,
+            (agent || assignmentScope === "mine") && session?.userId
+              ? session.userId
+              : undefined,
           slaState: slaScope === "all" ? undefined : slaScope,
           requesterUserId,
         });
@@ -123,7 +88,7 @@ function SupportInboxPage() {
         if (!silent) setLoading(false);
       }
     },
-    [filter, offset, query, assignmentScope, slaScope, session?.userId, requesterUserId],
+    [filter, offset, query, assignmentScope, slaScope, session?.userId, requesterUserId, agent],
   );
 
   const refreshSelectedTicket = useCallback(async (ticketId: string) => {
@@ -132,11 +97,21 @@ function SupportInboxPage() {
       setSelectedTicket(next);
       setSelectedRefreshError(null);
     } catch (err) {
+      if (err instanceof ApiError && err.status === 404) {
+        setSelectedId(null);
+        setSelectedTicket(null);
+        setSelectedRefreshError(null);
+        return;
+      }
       setSelectedRefreshError(
         err instanceof Error ? err.message : "Unable to refresh this ticket.",
       );
     }
   }, []);
+
+  useEffect(() => {
+    if (agent) setAssignmentScope("mine");
+  }, [agent]);
 
   useEffect(() => {
     void loadTickets(false);
@@ -204,6 +179,7 @@ function SupportInboxPage() {
       hasNext={data.hasMore}
       filter={filter}
       assignmentScope={assignmentScope}
+      showAssignmentScope={!agent}
       slaScope={slaScope}
       searchInput={searchInput}
       lookupRef={lookupRef}

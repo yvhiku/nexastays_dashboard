@@ -36,6 +36,7 @@ import { TicketComposer } from "./ticket-composer";
 import { TicketDetails } from "./ticket-details";
 import { TicketDetailsSheet } from "./ticket-details-sheet";
 import { statusMatchesFilter } from "./labels";
+import { isSupportAgent } from "@/lib/rbac";
 
 export function TicketWorkspace({
   ticket,
@@ -356,6 +357,7 @@ export function TicketWorkspace({
         onPriorityChange={(priority) => void changePriority(priority)}
         onAssignSelf={() => void assignSelf()}
         onUnassign={() => void unassign()}
+        hideAssignmentControls={isSupportAgent(session)}
       />
       {selectedRefreshError && (
         <div className="flex shrink-0 items-center justify-between gap-2 border-b border-nexa-danger/20 bg-nexa-danger-soft px-3 py-1.5 text-xs text-nexa-danger">

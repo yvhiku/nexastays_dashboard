@@ -29,6 +29,7 @@ export function TicketHeader({
   onPriorityChange,
   onAssignSelf,
   onUnassign,
+  hideAssignmentControls = false,
 }: {
   ticket: Ticket;
   isLookup: boolean;
@@ -42,6 +43,7 @@ export function TicketHeader({
   onPriorityChange: (priority: TicketPriority) => void;
   onAssignSelf: () => void;
   onUnassign: () => void;
+  hideAssignmentControls?: boolean;
 }) {
   const statusOptions = Array.from(new Set([ticket.status, ...STATUS_ACTIONS]));
 
@@ -89,26 +91,30 @@ export function TicketHeader({
               </option>
             ))}
           </select>
-          <select
-            className={selectClass}
-            value={ticket.priority}
-            aria-label="Ticket priority"
-            onChange={(e) => onPriorityChange(e.target.value as TicketPriority)}
-          >
-            {PRIORITIES.map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-          </select>
-          {ticket.assignee ? (
-            <Button size="sm" variant="outline" onClick={onUnassign}>
-              Unassign
-            </Button>
-          ) : (
-            <Button size="sm" variant="outline" onClick={onAssignSelf}>
-              Assign to me
-            </Button>
+          {!hideAssignmentControls && (
+            <>
+              <select
+                className={selectClass}
+                value={ticket.priority}
+                aria-label="Ticket priority"
+                onChange={(e) => onPriorityChange(e.target.value as TicketPriority)}
+              >
+                {PRIORITIES.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+              {ticket.assignee ? (
+                <Button size="sm" variant="outline" onClick={onUnassign}>
+                  Unassign
+                </Button>
+              ) : (
+                <Button size="sm" variant="outline" onClick={onAssignSelf}>
+                  Assign to me
+                </Button>
+              )}
+            </>
           )}
         </div>
       )}

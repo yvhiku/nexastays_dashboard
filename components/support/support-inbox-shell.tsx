@@ -23,6 +23,7 @@ export function SupportInboxShell({
   hasNext,
   filter,
   assignmentScope,
+  showAssignmentScope = true,
   slaScope,
   searchInput,
   lookupRef,
@@ -52,6 +53,7 @@ export function SupportInboxShell({
   hasNext: boolean;
   filter: SupportStatusFilter;
   assignmentScope: AssignmentScope;
+  showAssignmentScope?: boolean;
   slaScope: SlaScope;
   searchInput: string;
   lookupRef: string;
@@ -100,15 +102,17 @@ export function SupportInboxShell({
               { value: "CLOSED", label: "Closed" },
             ]}
           />
-          <FilterTabs<AssignmentScope>
-            value={assignmentScope}
-            onChange={onAssignmentChange}
-            options={[
-              { value: "all", label: "All assignees" },
-              { value: "mine", label: "My" },
-              { value: "unassigned", label: "Unassigned" },
-            ]}
-          />
+          {showAssignmentScope && (
+            <FilterTabs<AssignmentScope>
+              value={assignmentScope}
+              onChange={onAssignmentChange}
+              options={[
+                { value: "all", label: "All assignees" },
+                { value: "mine", label: "My" },
+                { value: "unassigned", label: "Unassigned" },
+              ]}
+            />
+          )}
           <FilterTabs<SlaScope>
             value={slaScope}
             onChange={onSlaChange}
