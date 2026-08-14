@@ -162,7 +162,7 @@ export default function SupportOperationsPage() {
     <div className="space-y-8">
       <PageHeader
         title="Support operations"
-        description="Current-state queue health, attention, workload, and advisory signals. No automatic routing."
+        description="Current-state queue health, attention, workload, and advisory signals. New tickets auto-assign to the least-loaded eligible agent; unassigned means no eligible capacity."
         actions={
           <Button size="sm" onClick={refresh}>
             Refresh
