@@ -15,6 +15,7 @@ import { DetailSheet } from "@/components/ui/detail-sheet";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
 import {
   fetchBookings,
+  fetchBookingsPage,
   fetchBookingDetail,
   fetchOccupantIdDocumentBlobUrl,
 } from "@/lib/api/stays-admin";
@@ -54,8 +55,21 @@ function BookingsPageInner() {
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
   const [selected, setSelected] = useState<Booking | null>(null);
+  const hostUserId = searchParams.get("hostUserId") || undefined;
+  const guestUserId = searchParams.get("guestUserId") || undefined;
+  const hasPersonFilter = Boolean(hostUserId || guestUserId);
 
-  const { data: bookings, loading, error } = useAsyncList(fetchBookings, []);
+  const { data: bookings, loading, error } = useAsyncList(
+    () =>
+      hasPersonFilter
+        ? fetchBookingsPage({
+            hostUserId,
+            guestUserId,
+            limit: 200,
+          }).then((page) => page.items)
+        : fetchBookings(),
+    [hasPersonFilter, hostUserId, guestUserId],
+  );
 
   useEffect(() => {
     setQuery(searchParams.get("q") ?? "");

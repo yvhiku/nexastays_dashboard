@@ -40,6 +40,8 @@ function ReportsPageInner() {
   const status = (searchParams.get("status") as StatusFilter | null) ?? "all";
   const offset = Math.max(Number(searchParams.get("offset") ?? "0") || 0, 0);
   const q = searchParams.get("q") ?? "";
+  const reporterUserId = searchParams.get("reporterUserId") || undefined;
+  const reportedUserId = searchParams.get("reportedUserId") || undefined;
 
   const [searchInput, setSearchInput] = useState(q);
   const [data, setData] = useState<ReportsResult>({
@@ -80,10 +82,12 @@ function ReportsPageInner() {
       if (nextStatus !== "all") params.set("status", nextStatus);
       if (nextOffset > 0) params.set("offset", String(nextOffset));
       if (nextQ.trim()) params.set("q", nextQ.trim());
+      if (reporterUserId) params.set("reporterUserId", reporterUserId);
+      if (reportedUserId) params.set("reportedUserId", reportedUserId);
       const qs = params.toString();
       router.replace(qs ? `/reports?${qs}` : "/reports");
     },
-    [kind, status, offset, q, router],
+    [kind, status, offset, q, reporterUserId, reportedUserId, router],
   );
 
   const loadReports = useCallback(async () => {
@@ -96,6 +100,8 @@ function ReportsPageInner() {
         kind: kind === "all" ? undefined : kind,
         status: status === "all" ? undefined : status,
         search: q.trim() || undefined,
+        reporterUserId,
+        reportedUserId,
       });
       setData(next);
       hasItemsRef.current = next.items.length > 0;
@@ -108,7 +114,7 @@ function ReportsPageInner() {
     } finally {
       setLoading(false);
     }
-  }, [kind, status, offset, q]);
+  }, [kind, status, offset, q, reporterUserId, reportedUserId]);
 
   useEffect(() => {
     void loadReports();

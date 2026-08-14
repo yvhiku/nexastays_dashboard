@@ -131,7 +131,10 @@ export type AdminUserDetail = {
   lastLoginAt: string | null;
 };
 
-export async function fetchAdminUser(id: string): Promise<AdminUserDetail> {
+export async function fetchAdminUser(
+  id: string,
+  init?: { signal?: AbortSignal },
+): Promise<AdminUserDetail> {
   const row = await apiFetch<{
     id: string;
     phone_number?: string | null;
@@ -159,7 +162,10 @@ export async function fetchAdminUser(id: string): Promise<AdminUserDetail> {
     pii_anonymized_at?: string | null;
     created_at?: string;
     last_login_at?: string | null;
-  }>(`/admin/users/${encodeURIComponent(id)}`, { base: "identity" });
+  }>(`/admin/users/${encodeURIComponent(id)}`, {
+    base: "identity",
+    signal: init?.signal,
+  });
 
   return {
     id: row.id,
@@ -191,6 +197,25 @@ export async function fetchAdminUser(id: string): Promise<AdminUserDetail> {
   };
 }
 
+export type IdentityAuditLog = {
+  action: string;
+  createdAt: string;
+};
+
+export async function fetchIdentityAuditLogs(
+  userId: string,
+  init?: { signal?: AbortSignal },
+): Promise<IdentityAuditLog[]> {
+  const rows = await apiFetch<Array<{ action?: string; created_at?: string }>>(
+    `/admin/audit/logs?user_id=${encodeURIComponent(userId)}&limit=20`,
+    { base: "identity", signal: init?.signal },
+  );
+  return (Array.isArray(rows) ? rows : []).map((row) => ({
+    action: row.action ?? "EVENT",
+    createdAt: row.created_at ?? "",
+  }));
+}
+
 function mergeHostOverlay(user: AppUser, host: AppUser): AppUser {
   const kycRank: Record<KycStatus, number> = {
     verified: 3,
@@ -204,7 +229,7 @@ function mergeHostOverlay(user: AppUser, host: AppUser): AppUser {
   return {
     ...user,
     hostProfileId: host.hostProfileId,
-    role: user.role === "guest" ? "host" : user.role,
+    role: user.role === "guest" ? "both" : user.role,
     status: host.status === "pending" ? "pending" : user.status,
     kyc,
     city: host.city !== "—" ? host.city : user.city,

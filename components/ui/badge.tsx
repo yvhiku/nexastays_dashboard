@@ -62,6 +62,7 @@ const statusMap: Record<string, StatusTone> = {
   cancelled: "danger",
   removed: "danger",
   escalated: "danger",
+  frozen: "info",
   draft: "neutral",
   expired: "neutral",
   payment_pending: "warning",

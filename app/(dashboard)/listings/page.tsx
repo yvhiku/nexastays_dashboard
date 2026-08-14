@@ -128,6 +128,7 @@ function ListingsPageInner() {
     return Number.isFinite(p) && p > 0 ? p : 1;
   });
   const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
+  const hostUserId = searchParams.get("hostUserId") || undefined;
   const [selected, setSelected] = useState<Listing | null>(null);
   const [acting, setActing] = useState<string | null>(null);
   const [counts, setCounts] = useState<ListingCounts>(EMPTY_LISTING_COUNTS);
@@ -170,6 +171,7 @@ function ListingsPageInner() {
           sort: sort === "priority" ? "oldest" : sort,
           limit: PAGE_SIZE,
           offset,
+          hostUserId,
         }),
       ]);
       setCounts(nextCounts);
@@ -184,7 +186,7 @@ function ListingsPageInner() {
     } finally {
       setLoading(false);
     }
-  }, [filter, page, sort, replaceParams]);
+  }, [filter, page, sort, hostUserId, replaceParams]);
 
   useEffect(() => {
     void load();
@@ -216,7 +218,8 @@ function ListingsPageInner() {
       (l) =>
         l.title.toLowerCase().includes(q) ||
         l.city.toLowerCase().includes(q) ||
-        l.hostName.toLowerCase().includes(q),
+        l.hostName.toLowerCase().includes(q) ||
+        l.id.toLowerCase().includes(q),
     );
   }, [listings, query]);
 

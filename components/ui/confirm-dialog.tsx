@@ -14,6 +14,7 @@ export function ConfirmDialog({
   busy = false,
   onConfirm,
   onCancel,
+  children,
 }: {
   open: boolean;
   title: string;
@@ -24,6 +25,7 @@ export function ConfirmDialog({
   busy?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
+  children?: React.ReactNode;
 }) {
   React.useEffect(() => {
     if (!open) return;
@@ -53,6 +55,7 @@ export function ConfirmDialog({
         {description ? (
           <p className="mt-2 whitespace-pre-wrap text-sm text-nexa-ink-3">{description}</p>
         ) : null}
+        {children ? <div className="mt-3">{children}</div> : null}
         <div className="mt-5 flex justify-end gap-2">
           <Button variant="outline" size="sm" onClick={onCancel} disabled={busy}>
             {cancelLabel}

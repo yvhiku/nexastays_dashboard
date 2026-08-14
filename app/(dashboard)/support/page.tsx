@@ -33,11 +33,14 @@ export default function SupportPage() {
 function SupportPageInner() {
   const searchParams = useSearchParams();
   const { session } = useAuth();
-  const [filter, setFilter] = useState<SupportStatusFilter>("OPEN");
+  const [filter, setFilter] = useState<SupportStatusFilter>(() =>
+    searchParams.get("requesterUserId") ? "all" : "OPEN",
+  );
   const [assignmentScope, setAssignmentScope] = useState<AssignmentScope>("all");
   const [slaScope, setSlaScope] = useState<SlaScope>("all");
   const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
   const [searchInput, setSearchInput] = useState(() => searchParams.get("q") ?? "");
+  const requesterUserId = searchParams.get("requesterUserId") || undefined;
   const [offset, setOffset] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(
     () => searchParams.get("ticket") ?? null,
@@ -70,6 +73,7 @@ function SupportPageInner() {
           assignedAdminId:
             assignmentScope === "mine" && session?.userId ? session.userId : undefined,
           slaState: slaScope === "all" ? undefined : slaScope,
+          requesterUserId,
         });
         setData(next);
       } catch (err) {
@@ -78,7 +82,7 @@ function SupportPageInner() {
         if (!silent) setLoading(false);
       }
     },
-    [filter, offset, query, assignmentScope, slaScope, session?.userId],
+    [filter, offset, query, assignmentScope, slaScope, session?.userId, requesterUserId],
   );
 
   const refreshSelectedTicket = useCallback(async (ticketId: string) => {

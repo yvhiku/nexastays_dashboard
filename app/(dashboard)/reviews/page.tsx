@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { Star, Flag, Trash2, Check } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
@@ -19,10 +20,24 @@ import type { Review } from "@/lib/types";
 type Filter = "all" | "published" | "flagged" | "removed";
 
 export default function ReviewsPage() {
+  return (
+    <Suspense fallback={<p className="py-10 text-center text-sm text-nexa-ink-4">Loading…</p>}>
+      <ReviewsPageInner />
+    </Suspense>
+  );
+}
+
+function ReviewsPageInner() {
+  const searchParams = useSearchParams();
+  const hostUserId = searchParams.get("hostUserId") || undefined;
+  const guestUserId = searchParams.get("guestUserId") || undefined;
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
 
-  const { data: reviews, loading, error, reload } = useAsyncList(fetchReviews, []);
+  const { data: reviews, loading, error, reload } = useAsyncList(
+    () => fetchReviews({ hostUserId, guestUserId }),
+    [hostUserId, guestUserId],
+  );
 
   const ratingDistribution = [5, 4, 3, 2, 1].map((stars) => ({
     stars,

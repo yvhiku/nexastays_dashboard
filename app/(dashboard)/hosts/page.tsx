@@ -1,25 +1,23 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, Suspense } from "react";
+import { useCallback, useEffect, useMemo, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Check, Eye, FileText, Snowflake, X } from "lucide-react";
-import { PageHeader } from "@/components/ui/page-header";
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge, StatusBadge } from "@/components/ui/badge";
-import { Table, THead, TH, TR, TD } from "@/components/ui/table";
-import { SearchInput, FilterTabs } from "@/components/ui/toolbar";
-import { PageToolbar } from "@/components/ui/page-toolbar";
-import { CollectionCard, ResponsiveCollection } from "@/components/ui/collection";
-import { DetailSheet } from "@/components/ui/detail-sheet";
-import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
-import { StickyActionBar } from "@/components/ui/sticky-action-bar";
+import { Check, Snowflake, Users, X } from "lucide-react";
+import { Person360Workspace } from "@/components/people/person-360-workspace";
+import type { PersonTab } from "@/components/people/person-display";
 import { Avatar } from "@/components/ui/avatar";
+import { StatusBadge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { CollectionCard } from "@/components/ui/collection";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { MasterDetail } from "@/components/ui/master-detail";
+import { PageShell } from "@/components/ui/page-shell";
+import { PageToolbar } from "@/components/ui/page-toolbar";
+import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
+import { FilterTabs, SearchInput } from "@/components/ui/toolbar";
 import {
   approveHostApplication,
-  fetchHostApplicationDocumentBlobUrl,
   fetchHostApplications,
-  fetchListingsPage,
   freezeHost,
   rejectHostApplication,
   unfreezeHost,
@@ -29,6 +27,7 @@ import { formatDate } from "@/lib/utils";
 import type { HostApplication, HostApplicationFilterStatus } from "@/lib/types";
 
 type Filter = "all" | HostApplicationFilterStatus;
+type HostAction = "approve" | "reject" | "freeze" | "unfreeze";
 
 function matchesFilter(app: HostApplication, filter: Filter) {
   if (filter === "all") return true;
@@ -72,6 +71,10 @@ function applicationStatusLabel(status: string) {
   return status.toLowerCase();
 }
 
+function canReview(app: HostApplication) {
+  return app.applicationStatus === "PENDING" || app.applicationStatus === "DRAFT";
+}
+
 export default function HostsPage() {
   return (
     <Suspense
@@ -87,29 +90,48 @@ export default function HostsPage() {
 function HostsPageInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const [filter, setFilter] = useState<Filter>(() =>
-    normalizeHostFilter(searchParams.get("status")),
-  );
-  const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
-  const [selected, setSelected] = useState<HostApplication | null>(null);
+  const personId = searchParams.get("person");
+  const tab = searchParams.get("tab");
+  const filter = normalizeHostFilter(searchParams.get("status"));
+  const q = searchParams.get("q") ?? "";
+
+  const [searchInput, setSearchInput] = useState(q);
   const [acting, setActing] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<{
+    app: HostApplication;
+    action: HostAction;
+  } | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+
   const { data: applications, loading, error, reload } = useAsyncList(
     fetchHostApplications,
     [],
   );
 
-  useEffect(() => {
-    setFilter(normalizeHostFilter(searchParams.get("status")));
-    setQuery(searchParams.get("q") ?? "");
-  }, [searchParams]);
+  const replaceParams = useCallback(
+    (patch: Record<string, string | null>) => {
+      const params = new URLSearchParams(searchParams.toString());
+      for (const [key, value] of Object.entries(patch)) {
+        if (value == null || value === "") params.delete(key);
+        else params.set(key, value);
+      }
+      const qs = params.toString();
+      router.replace(qs ? `/hosts?${qs}` : "/hosts");
+    },
+    [router, searchParams],
+  );
 
-  function updateFilter(next: Filter) {
-    setFilter(next);
-    const params = new URLSearchParams(searchParams.toString());
-    if (next === "all") params.delete("status");
-    else params.set("status", next);
-    router.replace(`/hosts?${params.toString()}`);
-  }
+  useEffect(() => {
+    setSearchInput(q);
+  }, [q]);
+
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      if (searchInput === q) return;
+      replaceParams({ q: searchInput || null });
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [searchInput, q, replaceParams]);
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: applications.length };
@@ -137,622 +159,323 @@ function HostsPageInner() {
 
   const filtered = applications.filter((app) => {
     const matchFilter = matchesFilter(app, filter);
-    const q = query.toLowerCase();
+    const needle = searchInput.toLowerCase();
     const matchQuery =
-      app.name.toLowerCase().includes(q) ||
-      app.email.toLowerCase().includes(q) ||
-      app.phone.toLowerCase().includes(q) ||
-      app.userId.toLowerCase().includes(q);
+      !needle ||
+      app.name.toLowerCase().includes(needle) ||
+      app.email.toLowerCase().includes(needle) ||
+      app.phone.toLowerCase().includes(needle) ||
+      app.userId.toLowerCase().includes(needle);
     return matchFilter && matchQuery;
   });
 
-  async function runAction(
-    id: string,
-    action: "approve" | "reject" | "freeze" | "unfreeze",
-    reason?: string,
-  ) {
-    setActing(id);
+  const selectedApp = useMemo(
+    () => (personId ? applications.find((app) => app.userId === personId) ?? null : null),
+    [applications, personId],
+  );
+
+  const onTabChange = useCallback(
+    (next: PersonTab) => {
+      replaceParams({ tab: next });
+    },
+    [replaceParams],
+  );
+
+  async function runAction(app: HostApplication, action: HostAction) {
+    setActing(app.id);
     try {
-      if (action === "approve") await approveHostApplication(id);
-      else if (action === "reject")
-        await rejectHostApplication(id, reason?.trim() || "Needs changes — rejected by admin");
-      else if (action === "freeze") await freezeHost(id);
-      else await unfreezeHost(id);
-      setSelected(null);
+      if (action === "approve") await approveHostApplication(app.id);
+      else if (action === "reject") {
+        await rejectHostApplication(
+          app.id,
+          rejectReason.trim() || "Needs changes — rejected by admin",
+        );
+      } else if (action === "freeze") await freezeHost(app.id);
+      else await unfreezeHost(app.id);
+      setConfirm(null);
+      setRejectReason("");
       await reload();
     } finally {
       setActing(null);
     }
   }
 
-  const canReview = (app: HostApplication) =>
-    app.applicationStatus === "PENDING" || app.applicationStatus === "DRAFT";
+  const hasSelection = Boolean(personId);
 
   return (
-    <div>
-      <PageHeader
-        title="Hosts"
-        description="One queue for applications, approved hosts, needs changes, and frozen accounts."
-        actions={
-          <Button size="sm" variant="outline" onClick={() => reload()} disabled={loading}>
-            Refresh
-          </Button>
-        }
-      />
-
-      {error && (
-        <ErrorState
-          className="mb-4"
-          title="Failed to load hosts"
-          detail={error}
-          onRetry={() => void reload()}
+    <PageShell variant="workspace">
+      <div className="shrink-0 border-b border-nexa-line bg-white px-4 py-3 sm:px-6">
+        <PageToolbar
+          className={hasSelection ? "hidden lg:flex" : undefined}
+          filters={
+            <FilterTabs<Filter>
+              value={filter}
+              onChange={(next) => {
+                replaceParams({
+                  status: next === "all" ? null : next,
+                });
+              }}
+              options={[
+                { value: "pending", label: "Pending", count: counts.pending ?? 0 },
+                { value: "approved", label: "Approved", count: counts.approved ?? 0 },
+                {
+                  value: "needs_changes",
+                  label: "Needs Changes",
+                  count: counts.needs_changes ?? 0,
+                },
+                { value: "rejected", label: "Rejected", count: counts.rejected ?? 0 },
+                { value: "frozen", label: "Frozen", count: counts.frozen ?? 0 },
+                { value: "all", label: "All", count: counts.all },
+              ]}
+            />
+          }
+          trailing={
+            <div className="flex items-center gap-2">
+              <SearchInput
+                value={searchInput}
+                onChange={setSearchInput}
+                placeholder="Search name, email…"
+                className="w-full md:w-64"
+              />
+              <Button size="sm" variant="outline" onClick={() => void reload()} disabled={loading}>
+                Refresh
+              </Button>
+            </div>
+          }
         />
-      )}
-
-      <PageToolbar
-        className="mb-4"
-        filters={
-          <FilterTabs<Filter>
-            value={filter}
-            onChange={updateFilter}
-            options={[
-              { value: "pending", label: "Pending", count: counts.pending ?? 0 },
-              { value: "approved", label: "Approved", count: counts.approved ?? 0 },
-              {
-                value: "needs_changes",
-                label: "Needs Changes",
-                count: counts.needs_changes ?? 0,
-              },
-              { value: "rejected", label: "Rejected", count: counts.rejected ?? 0 },
-              { value: "frozen", label: "Frozen", count: counts.frozen ?? 0 },
-              { value: "all", label: "All", count: counts.all },
-            ]}
+        {error ? (
+          <ErrorState
+            className="mt-3"
+            title="Failed to load hosts"
+            detail={error}
+            onRetry={() => void reload()}
           />
-        }
-        trailing={
-          <SearchInput
-            value={query}
-            onChange={setQuery}
-            placeholder="Search name, email, phone…"
-            className="lg:w-72"
-          />
-        }
-      />
+        ) : null}
+      </div>
 
-      <Card>
-        {loading && applications.length === 0 ? (
-          <LoadingState label="Loading host applications…" />
-        ) : (
-          <ResponsiveCollection
-            table={
-          <Table>
-            <THead>
-              <tr>
-                <TH>Applicant</TH>
-                <TH>Contact</TH>
-                <TH>Host type</TH>
-                <TH>Identity</TH>
-                <TH>Submitted</TH>
-                <TH>Status</TH>
-                <TH className="text-right">Actions</TH>
-              </tr>
-            </THead>
-            <tbody>
-              {filtered.map((app) => (
-                <TR key={app.id}>
-                  <TD>
-                    <div className="flex items-center gap-2.5">
-                      <Avatar name={app.name} color={app.avatarColor} size="sm" />
-                      <div className="min-w-0">
-                        <p className="truncate font-medium text-nexa-ink">{app.name}</p>
-                        <p className="truncate text-xs text-nexa-ink-4">
-                          {app.hostType?.replace(/_/g, " ") ?? "Host applicant"}
-                        </p>
-                      </div>
-                    </div>
-                  </TD>
-                  <TD>
-                    <p className="text-sm text-nexa-ink-2">{app.email}</p>
-                    <p className="text-xs text-nexa-ink-4">{app.phone}</p>
-                  </TD>
-                  <TD className="text-nexa-ink-3 capitalize">
-                    {app.hostType?.replace(/_/g, " ") ?? "—"}
-                  </TD>
-                  <TD>
-                    <Badge
-                      variant={
-                        app.identityStatus === "VERIFIED"
-                          ? "success"
-                          : app.identityReused
-                            ? "info"
-                            : "neutral"
+      <MasterDetail
+        splitAt="lg"
+        hasSelection={hasSelection}
+        onBack={() => replaceParams({ person: null, tab: null })}
+        backLabel="Back to Hosts"
+        list={
+          <div className="flex min-h-0 flex-1 flex-col bg-nexa-bg">
+            {loading && applications.length === 0 ? (
+              <LoadingState label="Loading host applications…" />
+            ) : !loading && filtered.length === 0 ? (
+              <EmptyState icon={Users} title="No hosts match your filters." />
+            ) : (
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                <div className="hidden lg:block">
+                  {filtered.map((app) => (
+                    <button
+                      key={app.id}
+                      type="button"
+                      onClick={() =>
+                        replaceParams({
+                          person: app.userId,
+                          tab: tab || "hosting",
+                        })
+                      }
+                      className={`block w-full border-b border-nexa-line px-4 py-3 text-left hover:bg-nexa-bg-2 ${
+                        personId === app.userId ? "bg-nexa-primary-soft" : "bg-white"
+                      }`}
+                    >
+                      <HostRow app={app} />
+                    </button>
+                  ))}
+                </div>
+                <div className="space-y-2 p-3 lg:hidden">
+                  {filtered.map((app) => (
+                    <CollectionCard
+                      key={app.id}
+                      selected={personId === app.userId}
+                      onClick={() =>
+                        replaceParams({
+                          person: app.userId,
+                          tab: tab || "hosting",
+                        })
                       }
                     >
-                      {app.identityReused
-                        ? "Reused KYC"
-                        : app.identityStatus.replace(/_/g, " ")}
-                    </Badge>
-                  </TD>
-                  <TD className="text-nexa-ink-3">
-                    {app.submittedAt ? formatDate(app.submittedAt) : "—"}
-                  </TD>
-                  <TD>
-                    <StatusBadge status={applicationStatusLabel(app.applicationStatus)} />
-                  </TD>
-                  <TD>
-                    <div className="flex justify-end gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        title="View details"
-                        onClick={() => setSelected(app)}
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      {canReview(app) && (
-                        <>
-                          <Button
-                            variant="success"
-                            size="icon"
-                            title="Approve"
-                            disabled={acting === app.id}
-                            onClick={() => runAction(app.id, "approve")}
-                          >
-                            <Check className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="danger-outline"
-                            size="icon"
-                            title="Needs changes"
-                            disabled={acting === app.id}
-                            onClick={() => setSelected(app)}
-                          >
-                            <X className="h-4 w-4" />
-                          </Button>
-                        </>
-                      )}
-                      {app.applicationStatus === "APPROVED" && !app.listingFrozen && (
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          title="Freeze"
-                          disabled={acting === app.id}
-                          onClick={() => runAction(app.id, "freeze")}
-                        >
-                          <Snowflake className="h-4 w-4" />
-                        </Button>
-                      )}
-                      {app.listingFrozen && (
-                        <Button
-                          variant="success"
-                          size="icon"
-                          title="Unfreeze"
-                          disabled={acting === app.id}
-                          onClick={() => runAction(app.id, "unfreeze")}
-                        >
-                          <Check className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </div>
-                  </TD>
-                </TR>
-              ))}
-            </tbody>
-          </Table>
-            }
-            cards={
-              <div className="space-y-2 p-3">
-                {filtered.map((app) => (
-                  <CollectionCard key={app.id} onClick={() => setSelected(app)}>
-                    <div className="flex items-start gap-3">
-                      <Avatar name={app.name} color={app.avatarColor} size="sm" />
-                      <div className="min-w-0 flex-1">
-                        <p className="font-medium text-nexa-ink">{app.name}</p>
-                        <p className="text-xs text-nexa-ink-4">{app.email}</p>
-                        <div className="mt-2 flex items-center justify-between gap-2">
-                          <StatusBadge status={applicationStatusLabel(app.applicationStatus)} />
-                          <span className="text-xs text-nexa-ink-4">
-                            {app.submittedAt ? formatDate(app.submittedAt) : "—"}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </CollectionCard>
-                ))}
+                      <HostRow app={app} />
+                    </CollectionCard>
+                  ))}
+                </div>
               </div>
+            )}
+          </div>
+        }
+        workspace={
+          personId ? (
+            <Person360Workspace
+              key={personId}
+              userId={personId}
+              tab={tab}
+              defaultTab="hosting"
+              onTabChange={onTabChange}
+              fallbackName={selectedApp?.name}
+              fallbackEmail={selectedApp?.email}
+              fallbackAvatarColor={selectedApp?.avatarColor}
+              actions={
+                selectedApp &&
+                (canReview(selectedApp) ||
+                  selectedApp.applicationStatus === "APPROVED" ||
+                  Boolean(selectedApp.listingFrozen)) ? (
+                  <HostActions
+                    app={selectedApp}
+                    acting={acting}
+                    onAction={(action) => {
+                      setRejectReason("");
+                      setConfirm({ app: selectedApp, action });
+                    }}
+                  />
+                ) : undefined
+              }
+            />
+          ) : (
+            <EmptyState
+              className="h-full"
+              icon={Users}
+              title="Select a host"
+              description="Open a person from the list to see identity, hosting, and trust."
+            />
+          )
+        }
+      />
+
+      <ConfirmDialog
+        open={Boolean(confirm)}
+        title={confirmTitle(confirm?.action)}
+        description={confirmDescription(confirm?.action, confirm?.app.name)}
+        confirmLabel={confirmLabel(confirm?.action)}
+        danger={confirm?.action === "reject" || confirm?.action === "freeze"}
+        busy={Boolean(confirm && acting === confirm.app.id)}
+        onConfirm={() => {
+          if (confirm) void runAction(confirm.app, confirm.action);
+        }}
+        onCancel={() => {
+          setConfirm(null);
+          setRejectReason("");
+        }}
+      >
+        {confirm?.action === "reject" ? (
+          <textarea
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+            rows={3}
+            placeholder="Explain why the application was rejected…"
+            className="w-full rounded-md border border-nexa-line px-3 py-2 text-sm text-nexa-ink placeholder:text-nexa-ink-4 focus:border-nexa-primary focus:outline-none focus:ring-1 focus:ring-nexa-primary"
+          />
+        ) : null}
+      </ConfirmDialog>
+    </PageShell>
+  );
+}
+
+function HostRow({ app }: { app: HostApplication }) {
+  return (
+    <div className="flex items-start gap-3">
+      <Avatar name={app.name} color={app.avatarColor} size="sm" />
+      <div className="min-w-0 flex-1">
+        <p className="truncate font-medium text-nexa-ink">{app.name}</p>
+        <p className="truncate text-xs text-nexa-ink-4">{app.email}</p>
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <StatusBadge
+            status={
+              app.listingFrozen
+                ? "frozen"
+                : applicationStatusLabel(app.applicationStatus)
             }
           />
-        )}
-        {!loading && filtered.length === 0 && (
-          <EmptyState title="No hosts match your filters." />
-        )}
-      </Card>
-
-      <ApplicationDrawer
-        application={selected}
-        acting={acting}
-        onClose={() => setSelected(null)}
-        onAction={runAction}
-        canReview={selected ? canReview(selected) : false}
-      />
+          <span className="text-[11px] text-nexa-ink-4">
+            {app.submittedAt ? formatDate(app.submittedAt) : "Not collected"}
+          </span>
+        </div>
+      </div>
     </div>
   );
 }
 
-function ApplicationDrawer({
-  application,
+function HostActions({
+  app,
   acting,
-  onClose,
   onAction,
-  canReview,
 }: {
-  application: HostApplication | null;
+  app: HostApplication;
   acting: string | null;
-  onClose: () => void;
-  onAction: (
-    id: string,
-    action: "approve" | "reject" | "freeze" | "unfreeze",
-    reason?: string,
-  ) => Promise<void>;
-  canReview: boolean;
+  onAction: (action: HostAction) => void;
 }) {
-  const [rejectReason, setRejectReason] = useState("");
-  const [docUrls, setDocUrls] = useState<{
-    front?: string;
-    back?: string;
-    selfie?: string;
-  }>({});
-  const [docError, setDocError] = useState<string | null>(null);
-  const [lightbox, setLightbox] = useState<{ label: string; url: string } | null>(
-    null,
-  );
-  const blobUrlsRef = useRef<string[]>([]);
-
-  useEffect(() => {
-    setRejectReason("");
-    setLightbox(null);
-  }, [application?.id]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadDocs() {
-      for (const url of blobUrlsRef.current) URL.revokeObjectURL(url);
-      blobUrlsRef.current = [];
-
-      if (!application) {
-        setDocUrls({});
-        setDocError(null);
-        return;
-      }
-      setDocUrls({});
-      setDocError(null);
-      try {
-        const next: { front?: string; back?: string; selfie?: string } = {};
-        const kinds: Array<{
-          key: "front" | "back" | "selfie";
-          enabled: boolean;
-        }> = [
-          { key: "front", enabled: !!application.documentFrontAssetId },
-          { key: "back", enabled: !!application.documentBackAssetId },
-          { key: "selfie", enabled: !!application.selfieAssetId },
-        ];
-        for (const { key, enabled } of kinds) {
-          if (!enabled) continue;
-          const url = await fetchHostApplicationDocumentBlobUrl(application.id, key);
-          blobUrlsRef.current.push(url);
-          if (!cancelled) next[key] = url;
-        }
-        if (!cancelled) setDocUrls(next);
-        else {
-          for (const url of blobUrlsRef.current) URL.revokeObjectURL(url);
-          blobUrlsRef.current = [];
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setDocError(err instanceof Error ? err.message : "Failed to load documents");
-        }
-      }
-    }
-
-    loadDocs();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    application?.id,
-    application?.documentFrontAssetId,
-    application?.documentBackAssetId,
-    application?.selfieAssetId,
-  ]);
-
-  useEffect(() => {
-    return () => {
-      for (const url of blobUrlsRef.current) URL.revokeObjectURL(url);
-      blobUrlsRef.current = [];
-    };
-  }, []);
-
+  const busy = acting === app.id;
   return (
     <>
-    <DetailSheet
-      open={Boolean(application)}
-      onClose={onClose}
-      title={application?.name ?? "Host"}
-      width="md"
-      footer={
-        application ? (
-          <StickyActionBar>
-            {canReview && (
-              <div className="space-y-3">
-                <textarea
-                  value={rejectReason}
-                  onChange={(e) => setRejectReason(e.target.value)}
-                  rows={2}
-                  placeholder="Explain why the application was rejected…"
-                  className="w-full rounded-md border border-nexa-line px-3 py-2 text-sm text-nexa-ink placeholder:text-nexa-ink-4 focus:border-nexa-primary focus:outline-none focus:ring-1 focus:ring-nexa-primary"
-                />
-                <div className="flex gap-2">
-                  <Button
-                    variant="success"
-                    className="flex-1"
-                    disabled={acting === application.id}
-                    onClick={() => onAction(application.id, "approve")}
-                  >
-                    <Check className="h-4 w-4" /> Approve
-                  </Button>
-                  <Button
-                    variant="danger-outline"
-                    className="flex-1"
-                    disabled={acting === application.id}
-                    onClick={() => onAction(application.id, "reject", rejectReason)}
-                  >
-                    <X className="h-4 w-4" /> Needs Changes
-                  </Button>
-                </div>
-              </div>
-            )}
-            {application.applicationStatus === "APPROVED" && (
-              application.listingFrozen ? (
-                <Button
-                  variant="success"
-                  className="w-full"
-                  disabled={acting === application.id}
-                  onClick={() => onAction(application.id, "unfreeze")}
-                >
-                  Unfreeze host
-                </Button>
-              ) : (
-                <Button
-                  variant="outline"
-                  className="w-full"
-                  disabled={acting === application.id}
-                  onClick={() => onAction(application.id, "freeze")}
-                >
-                  <Snowflake className="h-4 w-4" /> Freeze listings
-                </Button>
-              )
-            )}
-          </StickyActionBar>
-        ) : undefined
-      }
-    >
-        {application && (
-          <div className="p-5">
-            <div className="flex items-start gap-3">
-              <Avatar name={application.name} color={application.avatarColor} size="lg" />
-              <div className="min-w-0 flex-1">
-                <h2 className="font-display text-xl font-semibold text-nexa-ink">
-                  {application.name}
-                </h2>
-                <p className="mt-0.5 text-sm text-nexa-ink-3">{application.email}</p>
-                <div className="mt-2">
-                  <StatusBadge
-                    status={applicationStatusLabel(application.applicationStatus)}
-                  />
-                </div>
-              </div>
-            </div>
-
-            <dl className="mt-5 grid grid-cols-2 gap-4 text-sm">
-              <Detail label="Phone" value={application.phone} />
-              <Detail
-                label="Host type"
-                value={application.hostType?.replace(/_/g, " ") ?? "—"}
-              />
-              <Detail label="Document" value={application.documentType ?? "—"} />
-              <Detail label="Identity" value={application.identityStatus.replace(/_/g, " ")} />
-              <Detail
-                label="KYC reused"
-                value={application.identityReused ? "Yes" : "No"}
-              />
-              <Detail label="Source" value={application.source ?? "—"} />
-              <Detail label="Channel" value={application.submittedFrom ?? "—"} />
-              <Detail
-                label="Submitted"
-                value={
-                  application.submittedAt ? formatDate(application.submittedAt) : "—"
-                }
-              />
-              {application.reviewedAt && (
-                <Detail label="Reviewed" value={formatDate(application.reviewedAt)} />
-              )}
-            </dl>
-
-            {(application.documentFrontAssetId ||
-              application.documentBackAssetId ||
-              application.selfieAssetId) && (
-              <div className="mt-5 rounded-md border border-nexa-line p-3">
-                <p className="flex items-center gap-2 text-xs font-semibold uppercase text-nexa-ink-4">
-                  <FileText className="h-3.5 w-3.5" />
-                  Uploaded documents
-                </p>
-                {docError && (
-                  <p className="mt-2 text-xs text-nexa-danger">{docError}</p>
-                )}
-                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  {application.documentFrontAssetId && (
-                    <DocPreview
-                      label="ID front"
-                      url={docUrls.front}
-                      onOpen={(url) => setLightbox({ label: "ID front", url })}
-                    />
-                  )}
-                  {application.documentBackAssetId && (
-                    <DocPreview
-                      label="ID back"
-                      url={docUrls.back}
-                      onOpen={(url) => setLightbox({ label: "ID back", url })}
-                    />
-                  )}
-                  {application.selfieAssetId && (
-                    <DocPreview
-                      label="Selfie"
-                      url={docUrls.selfie}
-                      onOpen={(url) => setLightbox({ label: "Selfie", url })}
-                    />
-                  )}
-                </div>
-              </div>
-            )}
-
-            {application.rejectionReason && (
-              <div className="mt-5 rounded-md border border-nexa-danger/30 bg-nexa-danger-soft p-3">
-                <p className="text-xs font-semibold uppercase text-nexa-danger">
-                  Rejection reason
-                </p>
-                <p className="mt-1 text-sm text-nexa-ink-2">
-                  {application.rejectionReason}
-                </p>
-              </div>
-            )}
-
-            <HostListings userId={application.userId} />
-          </div>
-        )}
-    </DetailSheet>
-
-      {lightbox && (
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-nexa-ink/80 p-4"
-          onClick={() => setLightbox(null)}
-        >
-          <div
-            className="relative max-h-[90vh] w-full max-w-3xl"
-            onClick={(e) => e.stopPropagation()}
+      {canReview(app) ? (
+        <>
+          <Button
+            size="sm"
+            variant="success"
+            className="w-full justify-start"
+            disabled={busy}
+            onClick={() => onAction("approve")}
           >
-            <div className="mb-2 flex items-center justify-between gap-3">
-              <p className="text-sm font-medium text-white">{lightbox.label}</p>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-white hover:bg-white/10"
-                onClick={() => setLightbox(null)}
-              >
-                <X className="h-4 w-4" /> Close
-              </Button>
-            </div>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={lightbox.url}
-              alt={lightbox.label}
-              className="max-h-[85vh] w-full rounded-md bg-white object-contain"
-            />
-          </div>
-        </div>
-      )}
+            <Check className="h-4 w-4" /> Approve
+          </Button>
+          <Button
+            size="sm"
+            variant="danger-outline"
+            className="w-full justify-start"
+            disabled={busy}
+            onClick={() => onAction("reject")}
+          >
+            <X className="h-4 w-4" /> Needs changes
+          </Button>
+        </>
+      ) : null}
+      {app.applicationStatus === "APPROVED" && !app.listingFrozen ? (
+        <Button
+          size="sm"
+          variant="outline"
+          className="w-full justify-start"
+          disabled={busy}
+          onClick={() => onAction("freeze")}
+        >
+          <Snowflake className="h-4 w-4" /> Freeze listings
+        </Button>
+      ) : null}
+      {app.listingFrozen ? (
+        <Button
+          size="sm"
+          variant="success"
+          className="w-full justify-start"
+          disabled={busy}
+          onClick={() => onAction("unfreeze")}
+        >
+          <Check className="h-4 w-4" /> Unfreeze host
+        </Button>
+      ) : null}
     </>
   );
 }
 
-function DocPreview({
-  label,
-  url,
-  onOpen,
-}: {
-  label: string;
-  url?: string;
-  onOpen: (url: string) => void;
-}) {
-  return (
-    <div>
-      <p className="mb-1 text-xs text-nexa-ink-4">{label}</p>
-      {url ? (
-        <button
-          type="button"
-          onClick={() => onOpen(url)}
-          className="group relative block w-full overflow-hidden rounded-md border border-nexa-line text-left focus:outline-none focus:ring-2 focus:ring-nexa-primary"
-          title={`View ${label}`}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={url}
-            alt={label}
-            className="max-h-44 w-full bg-nexa-bg-2 object-contain"
-          />
-          <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-nexa-ink/55 px-2 py-1 text-[11px] text-white opacity-0 transition-opacity group-hover:opacity-100">
-            Click to enlarge
-          </span>
-        </button>
-      ) : (
-        <div className="flex h-28 items-center justify-center rounded-md border border-dashed border-nexa-line bg-nexa-bg-2 text-xs text-nexa-ink-4">
-          Loading…
-        </div>
-      )}
-    </div>
-  );
+function confirmTitle(action?: HostAction) {
+  if (action === "approve") return "Approve this host?";
+  if (action === "reject") return "Reject this application?";
+  if (action === "freeze") return "Freeze this host?";
+  if (action === "unfreeze") return "Unfreeze this host?";
+  return "Confirm";
 }
 
-function Detail({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt className="text-xs font-semibold uppercase text-nexa-ink-4">{label}</dt>
-      <dd className="mt-0.5 capitalize text-nexa-ink-2">{value}</dd>
-    </div>
-  );
+function confirmDescription(action: HostAction | undefined, name?: string) {
+  if (action === "approve") return `${name ?? "This host"} will be approved.`;
+  if (action === "reject") return `${name ?? "This application"} will be marked as needs changes.`;
+  if (action === "freeze") return `${name ?? "This host"}'s listings will be frozen.`;
+  if (action === "unfreeze") return `${name ?? "This host"}'s listings will be restored.`;
+  return undefined;
 }
 
-function HostListings({ userId }: { userId: string }) {
-  const [titles, setTitles] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    fetchListingsPage({ status: "all", limit: 100, offset: 0 })
-      .then((page) => {
-        if (cancelled) return;
-        setTitles(
-          page.items.filter((l) => l.hostId === userId).map((l) => `${l.title} (${l.status})`),
-        );
-      })
-      .catch(() => {
-        if (!cancelled) setTitles([]);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [userId]);
-
-  return (
-    <div className="mt-5">
-      <p className="mb-2 text-xs font-semibold uppercase text-nexa-ink-4">Properties</p>
-      {loading ? (
-        <p className="text-sm text-nexa-ink-4">Loading listings…</p>
-      ) : titles.length === 0 ? (
-        <p className="text-sm text-nexa-ink-4">No listings found for this host.</p>
-      ) : (
-        <ul className="space-y-1 text-sm text-nexa-ink-2">
-          {titles.map((t) => (
-            <li key={t} className="rounded-md border border-nexa-line px-3 py-1.5">
-              {t}
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
+function confirmLabel(action?: HostAction) {
+  if (action === "approve") return "Approve";
+  if (action === "reject") return "Reject";
+  if (action === "freeze") return "Freeze";
+  if (action === "unfreeze") return "Unfreeze";
+  return "Confirm";
 }

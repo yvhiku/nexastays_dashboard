@@ -1070,9 +1070,13 @@ export type StaysPersonOverview = {
 };
 
 /** Stays operational half of Admin 360. Bounded latest items; full history via filtered list endpoints. */
-export async function fetchStaysPerson(userId: string): Promise<StaysPersonOverview> {
+export async function fetchStaysPerson(
+  userId: string,
+  init?: { signal?: AbortSignal },
+): Promise<StaysPersonOverview> {
   return apiFetch<StaysPersonOverview>(
     `/admin/stays/people/${encodeURIComponent(userId)}`,
+    { signal: init?.signal },
   );
 }
 
@@ -1101,6 +1105,7 @@ export async function fetchAuditLogs(options?: {
   entityId?: string;
   limit?: number;
   offset?: number;
+  signal?: AbortSignal;
 }) {
   const params = new URLSearchParams({
     limit: String(options?.limit ?? 200),
@@ -1110,6 +1115,7 @@ export async function fetchAuditLogs(options?: {
   if (options?.entityId) params.set("entityId", options.entityId);
   const data = await apiFetch<Paginated<Parameters<typeof mapAuditLog>[0]>>(
     `/admin/stays/audit-logs?${params.toString()}`,
+    { signal: options?.signal },
   );
   return data.items.map(mapAuditLog);
 }
