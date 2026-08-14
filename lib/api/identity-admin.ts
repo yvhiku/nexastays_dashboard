@@ -123,3 +123,46 @@ export async function updateUserAccountStatus(
     },
   );
 }
+
+export type StaffRole = "ADMIN" | "SUPPORT_AGENT";
+
+export type StaffAccount = {
+  id: string;
+  email: string | null;
+  fullName: string | null;
+  staffRole: StaffRole;
+  accountStatus: string;
+};
+
+export async function fetchStaffAccounts(): Promise<StaffAccount[]> {
+  const result = await apiFetch<{
+    data?: Array<{
+      id: string;
+      email?: string | null;
+      full_name?: string | null;
+      staff_role?: string;
+      account_status?: string;
+    }>;
+  }>("/admin/users?account_type=ADMIN&limit=200", { base: "identity" });
+  return (result.data ?? []).map((row) => ({
+    id: row.id,
+    email: row.email ?? null,
+    fullName: row.full_name ?? null,
+    staffRole: row.staff_role === "SUPPORT_AGENT" ? "SUPPORT_AGENT" : "ADMIN",
+    accountStatus: row.account_status ?? "ACTIVE",
+  }));
+}
+
+export async function updateStaffRole(
+  userId: string,
+  staffRole: StaffRole,
+): Promise<{ success: boolean; staff_role: StaffRole }> {
+  return apiFetch<{ success: boolean; staff_role: StaffRole }>(
+    `/admin/users/${encodeURIComponent(userId)}/staff-role`,
+    {
+      base: "identity",
+      method: "PATCH",
+      body: JSON.stringify({ staffRole }),
+    },
+  );
+}

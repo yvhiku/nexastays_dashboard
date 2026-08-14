@@ -17,6 +17,11 @@ import {
   type AdminSession,
 } from "@/lib/api/auth";
 import { clearAccessToken, getAccessToken } from "@/lib/api/client";
+import {
+  canAccessDashboardPath,
+  getDefaultDashboardRoute,
+  isSupportAgent,
+} from "@/lib/rbac";
 
 type AuthContextValue = {
   token: string | null;
@@ -49,14 +54,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const agentBlocked =
+    authReady &&
+    Boolean(token) &&
+    isSupportAgent(session) &&
+    !canAccessDashboardPath(session, pathname);
+
   useEffect(() => {
     if (!authReady) return;
     if (!token && pathname !== "/login") {
       router.replace("/login");
-    } else if (token && pathname === "/login") {
-      router.replace("/");
+      return;
     }
-  }, [authReady, token, pathname, router]);
+    if (token && pathname === "/login") {
+      router.replace(getDefaultDashboardRoute(session));
+      return;
+    }
+    if (agentBlocked) {
+      router.replace("/support");
+    }
+  }, [authReady, token, pathname, router, session, agentBlocked]);
 
   const login = useCallback(async (email: string, password: string) => {
     const t = await adminLogin(email, password);
@@ -77,6 +94,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => ({ token, session, login, logout }),
     [token, session, login, logout],
   );
+
+  if (!authReady) {
+    return (
+      <div className="flex min-h-screen items-center justify-center text-sm text-nexa-ink-4">
+        Loading…
+      </div>
+    );
+  }
+
+  if (agentBlocked) {
+    return (
+      <AuthContext.Provider value={value}>
+        <div className="flex min-h-screen items-center justify-center text-sm text-nexa-ink-4">
+          Redirecting…
+        </div>
+      </AuthContext.Provider>
+    );
+  }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

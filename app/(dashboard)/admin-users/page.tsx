@@ -1,62 +1,116 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import { UserCog } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
 import { useAuth } from "@/components/providers/auth-provider";
+import {
+  fetchStaffAccounts,
+  updateStaffRole,
+  type StaffAccount,
+  type StaffRole,
+} from "@/lib/api/identity-admin";
+import { useAsyncList } from "@/lib/hooks/use-async-data";
+import { isSuperAdmin } from "@/lib/rbac";
 
 const ROLE_CATALOG = [
   {
-    id: "SUPER_ADMIN",
+    id: "ADMIN",
     name: "Super Admin",
-    description: "Everything. Use sparingly.",
+    description: "Full dashboard and admin APIs. Live.",
+    live: true,
+  },
+  {
+    id: "SUPPORT_AGENT",
+    name: "Support Agent",
+    description: "Support-only shell. Ticket APIs stay closed until Phase 2. Live.",
+    live: true,
   },
   {
     id: "OPERATIONS",
     name: "Operations",
     description: "Listings, bookings, hosts, guests.",
-  },
-  {
-    id: "SUPPORT",
-    name: "Support Agent",
-    description: "Tickets, guests, hosts, bookings.",
+    live: false,
   },
   {
     id: "FINANCE",
     name: "Finance",
     description: "Payments, refunds, payouts.",
+    live: false,
   },
   {
     id: "KYC",
     name: "KYC Agent",
     description: "Identity verification only.",
+    live: false,
   },
   {
     id: "CONTENT",
     name: "Content Manager",
     description: "CMS and listing content (P1).",
+    live: false,
   },
   {
     id: "MODERATOR",
     name: "Moderator",
     description: "Reviews and reports.",
+    live: false,
   },
 ] as const;
 
+function roleLabel(role: StaffRole) {
+  return role === "SUPPORT_AGENT" ? "Support Agent" : "Super Admin";
+}
+
 export default function AdminUsersPage() {
   const { session } = useAuth();
+  const canManage = isSuperAdmin(session);
+  const { data: staff, loading, error, reload } = useAsyncList(fetchStaffAccounts, []);
+  const [pending, setPending] = useState<{
+    user: StaffAccount;
+    next: StaffRole;
+  } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
   const roles = session?.roles?.length
     ? session.roles
     : session?.role
       ? [session.role]
       : ["ADMIN"];
 
+  const sortedStaff = useMemo(
+    () =>
+      [...staff].sort((a, b) =>
+        (a.email ?? a.id).localeCompare(b.email ?? b.id),
+      ),
+    [staff],
+  );
+
+  async function confirmRoleChange() {
+    if (!pending) return;
+    setBusy(true);
+    setActionError(null);
+    try {
+      await updateStaffRole(pending.user.id, pending.next);
+      setPending(null);
+      await reload();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Unable to change staff role.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div>
       <PageHeader
         title="Admin Users"
-        description="Signed-in identity from Identity session. Full RBAC administration is not in this launch."
+        description="Signed-in identity from Identity session. Super Admins can set live staff roles."
       />
 
       <Card className="mb-6">
@@ -90,12 +144,78 @@ export default function AdminUsersPage() {
         </CardContent>
       </Card>
 
+      {canManage && (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Staff roles</CardTitle>
+            <CardDescription>
+              Changing a role invalidates that person&apos;s outstanding access tokens.
+              Do not assign Support Agent for production work until ticket isolation ships.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {error && (
+              <ErrorState className="mb-4" title="Failed to load staff" detail={error} />
+            )}
+            {actionError && (
+              <ErrorState className="mb-4" title="Role change failed" detail={actionError} />
+            )}
+            {loading && staff.length === 0 ? (
+              <LoadingState label="Loading staff accounts…" />
+            ) : sortedStaff.length === 0 ? (
+              <EmptyState title="No staff accounts" description="ADMIN accounts will appear here." />
+            ) : (
+              <div className="divide-y divide-nexa-line">
+                {sortedStaff.map((user) => {
+                  const isSelf = user.id === session?.userId;
+                  return (
+                    <div
+                      key={user.id}
+                      className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-nexa-ink">
+                          {user.fullName || user.email || user.id}
+                        </p>
+                        <p className="truncate text-xs text-nexa-ink-4">
+                          {user.email ?? user.id}
+                          {isSelf ? " · you" : ""}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={user.staffRole === "ADMIN" ? "primary" : "neutral"}>
+                          {roleLabel(user.staffRole)}
+                        </Badge>
+                        <select
+                          className="h-8 rounded-md border border-nexa-line bg-white px-2 text-xs"
+                          value={user.staffRole}
+                          disabled={isSelf || busy}
+                          onChange={(e) => {
+                            const next = e.target.value as StaffRole;
+                            if (next === user.staffRole) return;
+                            setPending({ user, next });
+                          }}
+                          aria-label={`Staff role for ${user.email ?? user.id}`}
+                        >
+                          <option value="ADMIN">Super Admin</option>
+                          <option value="SUPPORT_AGENT">Support Agent</option>
+                        </select>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       <h2 className="mb-3 font-display text-lg font-semibold text-nexa-ink">
-        Target role catalog
+        Role catalog
       </h2>
       <p className="mb-4 text-sm text-nexa-ink-3">
-        Documented roles for when Identity returns roles[]. Today every admin is effectively
-        ADMIN, so all P0 nav groups stay visible. This is not a live permission matrix.
+        Super Admin and Support Agent are live staff roles. Other catalog entries remain
+        documentation until later phases.
       </p>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {ROLE_CATALOG.map((role) => (
@@ -107,12 +227,28 @@ export default function AdminUsersPage() {
               {role.name}
             </h3>
             <p className="mt-1 text-sm text-nexa-ink-3">{role.description}</p>
-            <Badge variant="neutral" className="mt-3">
-              {role.id}
+            <Badge variant={role.live ? "primary" : "neutral"} className="mt-3">
+              {role.live ? "Live" : role.id}
             </Badge>
           </Card>
         ))}
       </div>
+
+      <ConfirmDialog
+        open={Boolean(pending)}
+        title="Change staff role?"
+        description={
+          pending
+            ? `Set ${pending.user.email ?? pending.user.id} to ${roleLabel(pending.next)}. Their current session will be revoked.`
+            : undefined
+        }
+        confirmLabel="Change role"
+        busy={busy}
+        onConfirm={() => void confirmRoleChange()}
+        onCancel={() => {
+          if (!busy) setPending(null);
+        }}
+      />
     </div>
   );
 }

@@ -7,6 +7,8 @@ export type AdminSessionUser = {
   full_name?: string | null;
   role?: string;
   roles?: string[];
+  staff_role?: string;
+  staffRole?: string;
 };
 
 export type AdminSession = {
@@ -16,6 +18,7 @@ export type AdminSession = {
   name?: string | null;
   role?: string;
   roles?: string[];
+  staffRole?: string;
 };
 
 function mapSession(raw: {
@@ -37,13 +40,15 @@ function mapSession(raw: {
     : user?.role
       ? [user.role]
       : [];
+  const staffRole = user?.staffRole || user?.staff_role || roles[0];
   return {
     authenticated: true,
     userId: user?.userId,
     email,
     name: name || (email ? email.split("@")[0] : null),
-    role: user?.role || roles[0],
+    role: user?.role || staffRole || roles[0],
     roles,
+    staffRole,
   };
 }
 

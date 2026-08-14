@@ -11,6 +11,9 @@ import {
   type SlaScope,
   type SupportStatusFilter,
 } from "@/components/support/support-inbox-shell";
+import { isSupportAgent } from "@/lib/rbac";
+import { PageHeader } from "@/components/ui/page-header";
+import { Card } from "@/components/ui/card";
 
 const PAGE_SIZE = 50;
 
@@ -31,6 +34,46 @@ export default function SupportPage() {
 }
 
 function SupportPageInner() {
+  const { session } = useAuth();
+  if (isSupportAgent(session)) {
+    return (
+      <div>
+        <PageHeader
+          title="Support workspace"
+          description="You are signed in as a Support Agent."
+        />
+        <Card className="max-w-xl p-6">
+          <p className="text-sm text-nexa-ink-2">
+            Ticket access will be enabled once assignment isolation is active.
+          </p>
+          <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+            <div>
+              <dt className="text-xs text-nexa-ink-4">Name</dt>
+              <dd className="font-medium text-nexa-ink">{session?.name ?? "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-nexa-ink-4">Email</dt>
+              <dd className="font-medium text-nexa-ink">{session?.email ?? "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-nexa-ink-4">Role</dt>
+              <dd className="font-medium text-nexa-ink">
+                {session?.staffRole || session?.role || "SUPPORT_AGENT"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-nexa-ink-4">User ID</dt>
+              <dd className="font-medium text-nexa-ink">{session?.userId ?? "—"}</dd>
+            </div>
+          </dl>
+        </Card>
+      </div>
+    );
+  }
+  return <SupportInboxPage />;
+}
+
+function SupportInboxPage() {
   const searchParams = useSearchParams();
   const { session } = useAuth();
   const [filter, setFilter] = useState<SupportStatusFilter>("all");

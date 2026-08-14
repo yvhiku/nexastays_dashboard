@@ -10,6 +10,11 @@ import { fetchStats, EMPTY_DASHBOARD_STATS } from "@/lib/api/stays-admin";
 import { cn, initials } from "@/lib/utils";
 import { useAsyncStats } from "@/lib/hooks/use-async-data";
 import { useAuth } from "@/components/providers/auth-provider";
+import {
+  filterNavEntries,
+  getDefaultDashboardRoute,
+  isSupportAgent,
+} from "@/lib/rbac";
 
 function pathMatches(href: string, pathname: string) {
   return href === "/"
@@ -76,12 +81,19 @@ export function Sidebar() {
   const { session } = useAuth();
   const [open, setOpen] = useState(false);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
-  const { data: stats } = useAsyncStats(fetchStats, EMPTY_DASHBOARD_STATS, []);
+  const agent = isSupportAgent(session);
+  const { data: stats } = useAsyncStats(
+    agent ? async () => EMPTY_DASHBOARD_STATS : fetchStats,
+    EMPTY_DASHBOARD_STATS,
+    [agent],
+  );
   const metrics = stats as unknown as Record<string, number>;
+  const visibleNav = filterNavEntries(navEntries, session);
 
-  const displayName = session?.name?.trim() || "Admin";
+  const displayName = session?.name?.trim() || (agent ? "Support" : "Admin");
   const displayEmail = session?.email?.trim() || session?.userId?.slice(0, 8) || "Signed in";
-  const displayRole = session?.roles?.[0] || session?.role || "ADMIN";
+  const displayRole = session?.staffRole || session?.roles?.[0] || session?.role || "ADMIN";
+  const homeHref = getDefaultDashboardRoute(session);
 
   function isGroupOpen(group: NavGroup) {
     if (openGroups[group.label] !== undefined) return openGroups[group.label];
@@ -90,7 +102,7 @@ export function Sidebar() {
 
   const nav = (
     <nav className="flex flex-col gap-0.5 px-3">
-      {navEntries.map((entry) => {
+      {visibleNav.map((entry) => {
         if (entry.type === "link") {
           return (
             <NavLink
@@ -171,7 +183,7 @@ export function Sidebar() {
         )}
       >
         <div className="flex items-center justify-between px-5 h-16 border-b border-nexa-line">
-          <Link href="/" className="flex items-center gap-2.5">
+          <Link href={homeHref} className="flex items-center gap-2.5">
             <Image
               src="/images/nexastays.png"
               alt="Nexa Stays"
@@ -184,7 +196,7 @@ export function Sidebar() {
                 Nexa Stays
               </p>
               <p className="text-[11px] font-medium text-nexa-primary">
-                Operations
+                {agent ? "Support" : "Operations"}
               </p>
             </div>
           </Link>

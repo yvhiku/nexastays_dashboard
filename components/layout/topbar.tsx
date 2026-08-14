@@ -9,6 +9,7 @@ import { OperationsInbox } from "@/components/layout/operations-inbox";
 import { globalSearch, type SearchHit } from "@/lib/api/global-search";
 import { LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { isSupportAgent } from "@/lib/rbac";
 
 const KIND_LABEL: Record<SearchHit["kind"], string> = {
   booking: "Booking",
@@ -20,7 +21,8 @@ const KIND_LABEL: Record<SearchHit["kind"], string> = {
 export function Topbar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { logout } = useAuth();
+  const { logout, session } = useAuth();
+  const agent = isSupportAgent(session);
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -90,6 +92,7 @@ export function Topbar() {
         <span className="text-sm font-medium text-nexa-ink">{current}</span>
       </div>
 
+      {!agent && (
       <div ref={boxRef} className="relative ml-auto hidden w-[28rem] md:block">
         <form onSubmit={onSearchSubmit}>
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-nexa-ink-4" />
@@ -140,9 +143,10 @@ export function Topbar() {
           </div>
         )}
       </div>
+      )}
 
       <div className="ml-auto flex items-center gap-1 md:ml-0">
-        <OperationsInbox />
+        {!agent && <OperationsInbox />}
         <button
           type="button"
           onClick={logout}
