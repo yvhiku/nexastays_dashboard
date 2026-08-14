@@ -33,9 +33,7 @@ export default function SupportPage() {
 function SupportPageInner() {
   const searchParams = useSearchParams();
   const { session } = useAuth();
-  const [filter, setFilter] = useState<SupportStatusFilter>(() =>
-    searchParams.get("requesterUserId") ? "all" : "OPEN",
-  );
+  const [filter, setFilter] = useState<SupportStatusFilter>("all");
   const [assignmentScope, setAssignmentScope] = useState<AssignmentScope>("all");
   const [slaScope, setSlaScope] = useState<SlaScope>("all");
   const [query, setQuery] = useState(() => searchParams.get("q") ?? "");

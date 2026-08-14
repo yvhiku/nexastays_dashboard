@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { FileText, Eye } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
@@ -26,7 +26,7 @@ function normalizeKycFilter(raw: string | null): Filter {
   if (raw === "pending" || raw === "verified" || raw === "rejected" || raw === "all") {
     return raw;
   }
-  return "pending";
+  return "all";
 }
 
 export default function KycPage() {
@@ -39,16 +39,24 @@ export default function KycPage() {
 
 function KycPageInner() {
   const searchParams = useSearchParams();
-  const [filter, setFilter] = useState<Filter>(() =>
-    normalizeKycFilter(searchParams.get("status")),
-  );
+  const router = useRouter();
+  const filter = normalizeKycFilter(searchParams.get("status"));
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<KycRecord | null>(null);
   const { data: kycRecords, loading, error } = useAsyncList(fetchKycRecords, []);
 
-  useEffect(() => {
-    setFilter(normalizeKycFilter(searchParams.get("status")));
-  }, [searchParams]);
+  const replaceParams = useCallback(
+    (patch: Record<string, string | null>) => {
+      const params = new URLSearchParams(searchParams.toString());
+      for (const [key, value] of Object.entries(patch)) {
+        if (value == null || value === "") params.delete(key);
+        else params.set(key, value);
+      }
+      const qs = params.toString();
+      router.replace(qs ? `/kyc?${qs}` : "/kyc");
+    },
+    [router, searchParams],
+  );
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: kycRecords.length };
@@ -81,12 +89,12 @@ function KycPageInner() {
         filters={
           <FilterTabs<Filter>
             value={filter}
-            onChange={setFilter}
+            onChange={(next) => replaceParams({ status: next === "all" ? null : next })}
             options={[
+              { value: "all", label: "All", count: counts.all },
               { value: "pending", label: "Pending", count: counts.pending ?? 0 },
               { value: "verified", label: "Verified", count: counts.verified ?? 0 },
               { value: "rejected", label: "Rejected", count: counts.rejected ?? 0 },
-              { value: "all", label: "All", count: counts.all },
             ]}
           />
         }

@@ -46,7 +46,7 @@ type SortMode = "oldest" | "newest" | "priority";
 const PAGE_SIZE = 50;
 
 function normalizeFilter(raw: string | null): Filter {
-  if (!raw) return "pending";
+  if (!raw) return "all";
   if (raw === "live") return "active";
   if (raw === "paused") return "suspended";
   if (raw === "drafts") return "draft";
@@ -62,7 +62,7 @@ function normalizeFilter(raw: string | null): Filter {
   ) {
     return raw;
   }
-  return "pending";
+  return "all";
 }
 
 function filterToApiStatus(filter: Filter): string | undefined {
@@ -275,13 +275,13 @@ function ListingsPageInner() {
             value={filter}
             onChange={updateFilter}
             options={[
+              { value: "all", label: "All", count: counts.all },
               { value: "pending", label: "Pending", count: counts.pending },
               { value: "approved", label: "Approved", count: counts.approved },
               { value: "rejected", label: "Needs Changes", count: counts.rejected },
               { value: "active", label: "Live", count: counts.live },
               { value: "suspended", label: "Paused", count: counts.paused },
               { value: "draft", label: "Drafts", count: counts.draft },
-              { value: "all", label: "All", count: counts.all },
             ]}
           />
         }

@@ -60,7 +60,7 @@ function normalizeHostFilter(raw: string | null): Filter {
   ) {
     return raw;
   }
-  return "pending";
+  return "all";
 }
 
 function applicationStatusLabel(status: string) {
@@ -216,6 +216,7 @@ function HostsPageInner() {
                 });
               }}
               options={[
+                { value: "all", label: "All", count: counts.all },
                 { value: "pending", label: "Pending", count: counts.pending ?? 0 },
                 { value: "approved", label: "Approved", count: counts.approved ?? 0 },
                 {
@@ -225,7 +226,6 @@ function HostsPageInner() {
                 },
                 { value: "rejected", label: "Rejected", count: counts.rejected ?? 0 },
                 { value: "frozen", label: "Frozen", count: counts.frozen ?? 0 },
-                { value: "all", label: "All", count: counts.all },
               ]}
             />
           }

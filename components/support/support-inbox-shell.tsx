@@ -91,13 +91,13 @@ export function SupportInboxShell({
             value={filter}
             onChange={onFilterChange}
             options={[
+              { value: "all", label: "All statuses", count: ticketCount },
               { value: "OPEN", label: "Open" },
               { value: "IN_PROGRESS", label: "In progress" },
               { value: "WAITING_FOR_CUSTOMER", label: "Waiting" },
               { value: "ESCALATED", label: "Escalated" },
               { value: "RESOLVED", label: "Resolved" },
               { value: "CLOSED", label: "Closed" },
-              { value: "all", label: "All statuses", count: ticketCount },
             ]}
           />
           <FilterTabs<AssignmentScope>
