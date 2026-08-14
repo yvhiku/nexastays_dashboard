@@ -8,6 +8,7 @@ import { ClientOnly } from "@/components/client-only";
 import { MetricCard } from "@/components/dashboard/metric-card";
 import { HostMarketplaceFunnel } from "@/components/dashboard/host-funnel";
 import { NeedsAttention } from "@/components/dashboard/needs-attention";
+import { ErrorState } from "@/components/ui/states";
 import {
   fetchOpsOverview,
   EMPTY_OPS_OVERVIEW,
@@ -45,15 +46,17 @@ export default function AnalyticsPage() {
     overview.attention.needsChangesListings;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <PageHeader
         title="Analytics"
         description="Decision metrics only — if it cannot change today’s work, it is not here."
       />
 
       {error && (
-        <p className="text-sm text-nexa-danger">Failed to load analytics: {error}</p>
+        <ErrorState title="Failed to load analytics" detail={error} />
       )}
+
+      <NeedsAttention overview={overview} />
 
       <section>
         <h2 className="font-display text-lg font-semibold text-nexa-ink">Revenue</h2>
@@ -157,8 +160,6 @@ export default function AnalyticsPage() {
           <HostMarketplaceFunnel overview={overview} />
         </div>
       </section>
-
-      <NeedsAttention overview={overview} />
     </div>
   );
 }

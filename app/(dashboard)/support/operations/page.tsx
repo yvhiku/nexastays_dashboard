@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Clock, Gauge, LifeBuoy, ShieldAlert, UserX } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
+import { ErrorState } from "@/components/ui/states";
 import { MetricCard } from "@/components/dashboard/metric-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
@@ -58,12 +59,7 @@ export default function SupportOperationsPage() {
       />
 
       {error && (
-        <div className="flex items-center justify-between gap-3 rounded-md border border-nexa-danger/30 bg-nexa-danger-soft px-3 py-2 text-sm text-nexa-danger">
-          <p>{error}</p>
-          <Button size="sm" variant="outline" onClick={() => void load()}>
-            Retry
-          </Button>
-        </div>
+        <ErrorState title="Failed to load operations" detail={error} onRetry={() => void load()} />
       )}
 
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

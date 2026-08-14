@@ -9,10 +9,15 @@ import { Badge, StatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { FilterTabs, SearchInput } from "@/components/ui/toolbar";
+import { PageToolbar } from "@/components/ui/page-toolbar";
+import { CollectionCard, ResponsiveCollection } from "@/components/ui/collection";
+import { DetailSheet } from "@/components/ui/detail-sheet";
+import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
+import { StickyActionBar } from "@/components/ui/sticky-action-bar";
 import { fetchKycRecords } from "@/lib/api/stays-admin";
 import { fetchKycCase, type KycCase } from "@/lib/api/identity-admin";
 import { useAsyncList } from "@/lib/hooks/use-async-data";
-import { formatDate, cn } from "@/lib/utils";
+import { formatDate } from "@/lib/utils";
 import type { KycRecord, KycStatus } from "@/lib/types";
 
 type Filter = "all" | KycStatus;
@@ -68,32 +73,39 @@ function KycPageInner() {
       />
 
       {error && (
-        <p className="mb-4 text-sm text-nexa-danger">Failed to load KYC queue: {error}</p>
+        <ErrorState className="mb-4" title="Failed to load KYC queue" detail={error} />
       )}
 
-      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <FilterTabs<Filter>
-          value={filter}
-          onChange={setFilter}
-          options={[
-            { value: "pending", label: "Pending", count: counts.pending ?? 0 },
-            { value: "verified", label: "Verified", count: counts.verified ?? 0 },
-            { value: "rejected", label: "Rejected", count: counts.rejected ?? 0 },
-            { value: "all", label: "All", count: counts.all },
-          ]}
-        />
-        <SearchInput
-          value={query}
-          onChange={setQuery}
-          placeholder="Search name, document, provider…"
-          className="lg:w-72"
-        />
-      </div>
+      <PageToolbar
+        className="mb-4"
+        filters={
+          <FilterTabs<Filter>
+            value={filter}
+            onChange={setFilter}
+            options={[
+              { value: "pending", label: "Pending", count: counts.pending ?? 0 },
+              { value: "verified", label: "Verified", count: counts.verified ?? 0 },
+              { value: "rejected", label: "Rejected", count: counts.rejected ?? 0 },
+              { value: "all", label: "All", count: counts.all },
+            ]}
+          />
+        }
+        trailing={
+          <SearchInput
+            value={query}
+            onChange={setQuery}
+            placeholder="Search name, document, provider…"
+            className="lg:w-72"
+          />
+        }
+      />
 
       <Card>
-        {loading ? (
-          <p className="py-10 text-center text-sm text-nexa-ink-4">Loading KYC applications…</p>
+        {loading && kycRecords.length === 0 ? (
+          <LoadingState label="Loading KYC applications…" />
         ) : (
+          <ResponsiveCollection
+            table={
           <Table>
             <THead>
               <tr>
@@ -142,9 +154,29 @@ function KycPageInner() {
               ))}
             </tbody>
           </Table>
+            }
+            cards={
+              <div className="space-y-2 p-3">
+                {filtered.map((k) => (
+                  <CollectionCard key={k.id} onClick={() => setSelected(k)}>
+                    <p className="font-medium text-nexa-ink">{k.name}</p>
+                    <p className="mt-1 text-xs text-nexa-ink-4">
+                      {k.role} · {k.documentType} · {k.provider}
+                    </p>
+                    <div className="mt-2 flex items-center justify-between">
+                      <StatusBadge status={k.status} />
+                      <span className="text-xs text-nexa-ink-4">
+                        {formatDate(k.submittedAt)}
+                      </span>
+                    </div>
+                  </CollectionCard>
+                ))}
+              </div>
+            }
+          />
         )}
         {!loading && filtered.length === 0 && (
-          <p className="py-10 text-center text-sm text-nexa-ink-4">No KYC records found.</p>
+          <EmptyState title="No KYC records found." />
         )}
       </Card>
 
@@ -191,20 +223,30 @@ function KycDrawer({
   const data = detail;
 
   return (
-    <>
-      <div
-        className={cn(
-          "fixed inset-0 z-50 bg-nexa-ink/40 transition-opacity",
-          record ? "opacity-100" : "pointer-events-none opacity-0",
-        )}
-        onClick={onClose}
-      />
-      <aside
-        className={cn(
-          "fixed inset-y-0 right-0 z-50 w-full max-w-md overflow-y-auto border-l border-nexa-line bg-white transition-transform",
-          record ? "translate-x-0" : "translate-x-full",
-        )}
-      >
+    <DetailSheet
+      open={Boolean(record)}
+      onClose={onClose}
+      title={record?.name ?? "KYC"}
+      width="md"
+      footer={
+        record ? (
+          <StickyActionBar>
+            <div className="flex gap-2">
+              <Button variant="success" className="flex-1" disabled title="Identity POST /admin/kyc/:id/approve is not exposed yet">
+                Approve
+              </Button>
+              <Button variant="danger-outline" className="flex-1" disabled title="Identity POST /admin/kyc/:id/reject is not exposed yet">
+                Reject
+              </Button>
+            </div>
+            <p className="mt-2 text-xs text-nexa-ink-4">
+              Approve / reject stay disabled until Identity exposes POST /admin/kyc/:id/approve
+              and /reject. The service methods already exist on the backend.
+            </p>
+          </StickyActionBar>
+        ) : undefined
+      }
+    >
         {record && (
           <div className="p-5">
             <h2 className="font-display text-xl font-semibold text-nexa-ink">{record.name}</h2>
@@ -250,21 +292,8 @@ function KycDrawer({
                 {data?.failureReason ?? record.failureReason}
               </div>
             )}
-            <div className="mt-6 space-y-2">
-              <Button variant="success" className="w-full" disabled title="Identity POST /admin/kyc/:id/approve is not exposed yet">
-                Approve
-              </Button>
-              <Button variant="danger-outline" className="w-full" disabled title="Identity POST /admin/kyc/:id/reject is not exposed yet">
-                Reject
-              </Button>
-              <p className="text-xs text-nexa-ink-4">
-                Approve / reject stay disabled until Identity exposes POST /admin/kyc/:id/approve
-                and /reject. The service methods already exist on the backend.
-              </p>
-            </div>
           </div>
         )}
-      </aside>
-    </>
+    </DetailSheet>
   );
 }

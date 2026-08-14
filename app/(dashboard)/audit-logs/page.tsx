@@ -8,6 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { SearchInput, FilterTabs } from "@/components/ui/toolbar";
+import { PageToolbar } from "@/components/ui/page-toolbar";
+import { CollectionCard, ResponsiveCollection } from "@/components/ui/collection";
+import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
 import { Avatar } from "@/components/ui/avatar";
 import { fetchAuditLogs } from "@/lib/api/stays-admin";
 import { useAsyncList } from "@/lib/hooks/use-async-data";
@@ -42,22 +45,29 @@ export default function AuditLogsPage() {
       />
 
       {error && (
-        <p className="mb-4 text-sm text-nexa-danger">Failed to load audit logs: {error}</p>
+        <ErrorState className="mb-4" title="Failed to load audit logs" detail={error} />
       )}
 
-      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <FilterTabs
-          value={module}
-          onChange={setModule}
-          options={MODULES.map((m) => ({ value: m, label: m === "all" ? "All modules" : m }))}
-        />
-        <SearchInput value={query} onChange={setQuery} placeholder="Search actor, action, target…" className="lg:w-72" />
-      </div>
+      <PageToolbar
+        className="mb-4"
+        filters={
+          <FilterTabs
+            value={module}
+            onChange={setModule}
+            options={MODULES.map((m) => ({ value: m, label: m === "all" ? "All modules" : m }))}
+          />
+        }
+        trailing={
+          <SearchInput value={query} onChange={setQuery} placeholder="Search actor, action, target…" className="lg:w-72" />
+        }
+      />
 
       <Card>
-        {loading ? (
-          <p className="py-10 text-center text-sm text-nexa-ink-4">Loading audit logs…</p>
+        {loading && auditLogs.length === 0 ? (
+          <LoadingState label="Loading audit logs…" />
         ) : (
+          <ResponsiveCollection
+            table={
         <Table>
           <THead>
             <tr>
@@ -114,9 +124,24 @@ export default function AuditLogsPage() {
             ))}
           </tbody>
         </Table>
+            }
+            cards={
+              <div className="space-y-2 p-3">
+                {filtered.map((l) => (
+                  <CollectionCard key={l.id}>
+                    <p className="text-sm font-medium text-nexa-ink">{l.action}</p>
+                    <p className="mt-1 text-xs text-nexa-ink-4">
+                      {l.actor} · {l.module} · {l.target}
+                    </p>
+                    <p className="mt-1 text-xs text-nexa-ink-4">{formatDateTime(l.timestamp)}</p>
+                  </CollectionCard>
+                ))}
+              </div>
+            }
+          />
         )}
         {!loading && filtered.length === 0 && (
-          <p className="py-10 text-center text-sm text-nexa-ink-4">No matching log entries.</p>
+          <EmptyState title="No matching log entries." />
         )}
       </Card>
     </div>

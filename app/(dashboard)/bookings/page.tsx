@@ -9,13 +9,17 @@ import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { SearchInput, FilterTabs } from "@/components/ui/toolbar";
+import { PageToolbar } from "@/components/ui/page-toolbar";
+import { CollectionCard, ResponsiveCollection } from "@/components/ui/collection";
+import { DetailSheet } from "@/components/ui/detail-sheet";
+import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
 import {
   fetchBookings,
   fetchBookingDetail,
   fetchOccupantIdDocumentBlobUrl,
 } from "@/lib/api/stays-admin";
 import { useAsyncList } from "@/lib/hooks/use-async-data";
-import { formatCurrency, formatDate, formatDateTime, cn } from "@/lib/utils";
+import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import type { Booking, BookingDetail, BookingOccupant } from "@/lib/types";
 
 type Filter =
@@ -86,48 +90,55 @@ function BookingsPageInner() {
       />
 
       {error && (
-        <p className="mb-4 text-sm text-nexa-danger">Failed to load bookings: {error}</p>
+        <ErrorState className="mb-4" title="Failed to load bookings" detail={error} />
       )}
 
-      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <FilterTabs<Filter>
-          value={filter}
-          onChange={setFilter}
-          options={[
-            { value: "all", label: "All", count: counts.all },
-            {
-              value: "PAYMENT_PENDING",
-              label: "Pending payment",
-              count: counts.PAYMENT_PENDING ?? 0,
-            },
-            { value: "CONFIRMED", label: "Confirmed", count: counts.CONFIRMED ?? 0 },
-            { value: "CHECKED_IN", label: "Checked in", count: counts.CHECKED_IN ?? 0 },
-            { value: "COMPLETED", label: "Completed", count: counts.COMPLETED ?? 0 },
-            {
-              value: "CANCELLED_BY_GUEST",
-              label: "Cancelled (guest)",
-              count: counts.CANCELLED_BY_GUEST ?? 0,
-            },
-            {
-              value: "CANCELLED_BY_HOST",
-              label: "Cancelled (host)",
-              count: counts.CANCELLED_BY_HOST ?? 0,
-            },
-            { value: "EXPIRED", label: "Expired", count: counts.EXPIRED ?? 0 },
-          ]}
-        />
-        <SearchInput
-          value={query}
-          onChange={setQuery}
-          placeholder="Search ref, guest, property…"
-          className="lg:w-72"
-        />
-      </div>
+      <PageToolbar
+        className="mb-4"
+        filters={
+          <FilterTabs<Filter>
+            value={filter}
+            onChange={setFilter}
+            options={[
+              { value: "all", label: "All", count: counts.all },
+              {
+                value: "PAYMENT_PENDING",
+                label: "Pending payment",
+                count: counts.PAYMENT_PENDING ?? 0,
+              },
+              { value: "CONFIRMED", label: "Confirmed", count: counts.CONFIRMED ?? 0 },
+              { value: "CHECKED_IN", label: "Checked in", count: counts.CHECKED_IN ?? 0 },
+              { value: "COMPLETED", label: "Completed", count: counts.COMPLETED ?? 0 },
+              {
+                value: "CANCELLED_BY_GUEST",
+                label: "Cancelled (guest)",
+                count: counts.CANCELLED_BY_GUEST ?? 0,
+              },
+              {
+                value: "CANCELLED_BY_HOST",
+                label: "Cancelled (host)",
+                count: counts.CANCELLED_BY_HOST ?? 0,
+              },
+              { value: "EXPIRED", label: "Expired", count: counts.EXPIRED ?? 0 },
+            ]}
+          />
+        }
+        trailing={
+          <SearchInput
+            value={query}
+            onChange={setQuery}
+            placeholder="Search ref, guest, property…"
+            className="lg:w-72"
+          />
+        }
+      />
 
       <Card>
-        {loading ? (
-          <p className="py-10 text-center text-sm text-nexa-ink-4">Loading bookings…</p>
+        {loading && bookings.length === 0 ? (
+          <LoadingState label="Loading bookings…" />
         ) : (
+          <ResponsiveCollection
+            table={
         <Table>
           <THead>
             <tr>
@@ -173,9 +184,35 @@ function BookingsPageInner() {
             ))}
           </tbody>
         </Table>
+            }
+            cards={
+              <div className="space-y-2 p-3">
+                {filtered.map((b) => (
+                  <CollectionCard key={b.id} onClick={() => setSelected(b)}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="font-medium text-nexa-ink">{b.reference}</p>
+                        <p className="mt-1 text-sm text-nexa-ink-2">{b.guestName}</p>
+                        <p className="text-xs text-nexa-ink-4">
+                          {b.listingTitle} · {b.city}
+                        </p>
+                      </div>
+                      <StatusBadge status={b.rawStatus.toLowerCase()} />
+                    </div>
+                    <div className="mt-2 flex items-center justify-between text-xs text-nexa-ink-3">
+                      <span>
+                        {formatDate(b.checkIn)} → {formatDate(b.checkOut)}
+                      </span>
+                      <span className="font-medium text-nexa-ink">{formatCurrency(b.total)}</span>
+                    </div>
+                  </CollectionCard>
+                ))}
+              </div>
+            }
+          />
         )}
         {!loading && filtered.length === 0 && (
-          <p className="py-10 text-center text-sm text-nexa-ink-4">No bookings found.</p>
+          <EmptyState title="No bookings found." />
         )}
       </Card>
 
@@ -226,20 +263,12 @@ function BookingDrawer({ booking, onClose }: { booking: Booking | null; onClose:
     : [];
 
   return (
-    <>
-      <div
-        className={cn(
-          "fixed inset-0 z-50 bg-nexa-ink/40 transition-opacity",
-          booking ? "opacity-100" : "pointer-events-none opacity-0",
-        )}
-        onClick={onClose}
-      />
-      <aside
-        className={cn(
-          "fixed inset-y-0 right-0 z-50 w-full max-w-lg overflow-y-auto border-l border-nexa-line bg-white transition-transform",
-          booking ? "translate-x-0" : "translate-x-full",
-        )}
-      >
+    <DetailSheet
+      open={Boolean(booking)}
+      onClose={onClose}
+      title={data?.reference ?? "Booking"}
+      width="lg"
+    >
         {booking && data && (
           <div className="p-5">
             <div className="flex items-start justify-between gap-3">
@@ -253,6 +282,24 @@ function BookingDrawer({ booking, onClose }: { booking: Booking | null; onClose:
                 </p>
               </div>
               <StatusBadge status={data.rawStatus.toLowerCase()} />
+            </div>
+
+            <div className="mt-5 space-y-2 rounded-md border border-nexa-line p-3 text-sm">
+              <p className="text-xs font-semibold uppercase text-nexa-ink-4">Relationship</p>
+              <p>
+                <span className="text-nexa-ink-4">Guest</span>{" "}
+                <span className="font-medium text-nexa-ink">{data.guestName}</span>
+              </p>
+              <p>
+                <span className="text-nexa-ink-4">Booking</span>{" "}
+                <span className="font-medium text-nexa-ink">{data.reference}</span>
+              </p>
+              <p>
+                <span className="text-nexa-ink-4">Host + property</span>{" "}
+                <span className="font-medium text-nexa-ink">
+                  {data.hostName} · {data.listingTitle}
+                </span>
+              </p>
             </div>
 
             {loading && (
@@ -369,8 +416,7 @@ function BookingDrawer({ booking, onClose }: { booking: Booking | null; onClose:
             )}
           </div>
         )}
-      </aside>
-    </>
+    </DetailSheet>
   );
 }
 

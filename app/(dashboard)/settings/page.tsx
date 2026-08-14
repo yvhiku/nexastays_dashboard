@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ErrorState, LoadingState } from "@/components/ui/states";
+import { StickyActionBar } from "@/components/ui/sticky-action-bar";
 import { cn } from "@/lib/utils";
 import {
   fetchFeeSettings,
@@ -129,11 +131,6 @@ export default function SettingsPage() {
       <PageHeader
         title="System Settings"
         description="Platform configuration — commission rates apply to all new bookings on web and mobile."
-        actions={
-          <Button size="sm" onClick={handleSaveFees} disabled={feeSaving || feeLoading}>
-            {feeSaving ? "Saving…" : "Save commission"}
-          </Button>
-        }
       />
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
@@ -148,7 +145,7 @@ export default function SettingsPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             {feeLoading ? (
-              <p className="text-sm text-nexa-ink-4">Loading current rates…</p>
+              <LoadingState className="py-6" label="Loading current rates…" />
             ) : (
               <>
                 <div className="grid grid-cols-2 gap-4">
@@ -184,7 +181,7 @@ export default function SettingsPage() {
                   <p className="text-sm text-green-700">{feeMessage}</p>
                 )}
                 {feeError && (
-                  <p className="text-sm text-red-600">{feeError}</p>
+                  <ErrorState title="Fee settings" detail={feeError} />
                 )}
               </>
             )}
@@ -274,6 +271,13 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
       </div>
+      <StickyActionBar className="-mx-4 mt-6 sm:-mx-6 lg:-mx-8">
+        <div className="flex items-center justify-end gap-2 px-4 sm:px-6 lg:px-8">
+          <Button size="sm" onClick={handleSaveFees} disabled={feeSaving || feeLoading}>
+            {feeSaving ? "Saving…" : "Save commission"}
+          </Button>
+        </div>
+      </StickyActionBar>
     </div>
   );
 }

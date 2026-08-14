@@ -14,6 +14,7 @@ import { HostMarketplaceFunnel } from "@/components/dashboard/host-funnel";
 import { GroupedActivity } from "@/components/dashboard/grouped-activity";
 import { OpsHero } from "@/components/dashboard/ops-hero";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { ErrorState } from "@/components/ui/states";
 import { AreaChart, BarChart } from "@/components/charts/charts";
 import { ClientOnly } from "@/components/client-only";
 import {
@@ -45,14 +46,6 @@ export default function OverviewPage() {
   );
   const { data: auditLogs } = useAsyncList(fetchAuditLogs, []);
 
-  if (error) {
-    return (
-      <div className="rounded-md border border-nexa-danger/30 bg-nexa-danger-soft p-4 text-sm text-nexa-danger">
-        Failed to load operations overview: {error}
-      </div>
-    );
-  }
-
   const s = overview.snapshot;
   const a = overview.attention;
   const attentionTotal =
@@ -76,12 +69,16 @@ export default function OverviewPage() {
   }));
 
   return (
-    <div className="space-y-8">
-      <OpsHero overview={overview} attentionTotal={attentionTotal} />
-
+    <div className="space-y-6">
+      {error && (
+        <ErrorState
+          title="Failed to load operations overview"
+          detail={error}
+        />
+      )}
       <NeedsAttention overview={overview} />
 
-      <HostMarketplaceFunnel overview={overview} />
+      <OpsHero overview={overview} attentionTotal={attentionTotal} />
 
       <section>
         <h2 className="font-display text-lg font-semibold text-nexa-ink">
@@ -141,6 +138,12 @@ export default function OverviewPage() {
         </div>
       </section>
 
+      <GroupedActivity overview={overview} />
+
+      <AuditActivityStrip logs={auditLogs} />
+
+      <HostMarketplaceFunnel overview={overview} />
+
       <section>
         <h2 className="font-display text-lg font-semibold text-nexa-ink">
           Business Trends
@@ -171,10 +174,6 @@ export default function OverviewPage() {
           </Card>
         </div>
       </section>
-
-      <GroupedActivity overview={overview} />
-
-      <AuditActivityStrip logs={auditLogs} />
     </div>
   );
 }

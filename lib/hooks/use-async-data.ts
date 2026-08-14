@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export function useAsyncData<T>(
   loader: () => Promise<T>,
@@ -10,14 +10,18 @@ export function useAsyncData<T>(
   const [data, setData] = useState<T | null>(initialValue ?? null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const loadedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    if (!loadedRef.current) setLoading(true);
     setError(null);
     loader()
       .then((result) => {
-        if (!cancelled) setData(result);
+        if (!cancelled) {
+          setData(result);
+          loadedRef.current = true;
+        }
       })
       .catch((e: Error) => {
         if (!cancelled) setError(e.message ?? "Failed to load data");
@@ -32,11 +36,12 @@ export function useAsyncData<T>(
   }, deps);
 
   const reload = async () => {
-    setLoading(true);
     setError(null);
+    if (!loadedRef.current) setLoading(true);
     try {
       const result = await loader();
       setData(result);
+      loadedRef.current = true;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load data");
     } finally {

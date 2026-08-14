@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Check, Film, ImageIcon, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/badge";
+import { DetailSheet } from "@/components/ui/detail-sheet";
+import { StickyActionBar } from "@/components/ui/sticky-action-bar";
 import {
   fetchListingDetail,
   fetchListingMediaBlobUrl,
@@ -146,75 +148,113 @@ export function ListingReviewDrawer({
 
   const heroUrl = selectedPhoto ? mediaUrls[selectedPhoto] : undefined;
 
-  return (
-    <>
-      <div
-        className={cn(
-          "fixed inset-0 z-50 bg-nexa-ink/40 transition-opacity",
-          listing ? "opacity-100" : "pointer-events-none opacity-0",
+  const footer =
+    listing && (listing.status === "pending" || listing.status === "approved" || listing.status === "active") ? (
+      <StickyActionBar>
+        {listing.status === "pending" && (
+          <textarea
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+            placeholder="Rejection reason (optional)"
+            rows={2}
+            className="mb-3 w-full rounded-lg border border-nexa-line px-3 py-2 text-sm outline-none focus:border-nexa-primary"
+          />
         )}
-        onClick={onClose}
-      />
-      <aside
-        className={cn(
-          "fixed inset-y-0 right-0 z-50 w-full max-w-2xl overflow-y-auto border-l border-nexa-line bg-white shadow-xl transition-transform",
-          listing ? "translate-x-0" : "translate-x-full",
-        )}
-      >
-        {listing && (
-          <div>
-            <div className="relative h-52 w-full bg-nexa-bg-2">
-              {heroUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={heroUrl}
-                  alt={listing.title}
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                <div
-                  className="flex h-full w-full items-center justify-center"
-                  style={{ backgroundColor: listing.thumbnailColor }}
-                >
-                  {loading || mediaLoading ? (
-                    <Loader2 className="h-8 w-8 animate-spin text-white/80" />
-                  ) : (
-                    <ImageIcon className="h-10 w-10 text-white/80" />
-                  )}
-                </div>
-              )}
-              <button
-                type="button"
-                onClick={onClose}
-                className="absolute right-3 top-3 rounded-full bg-white/90 p-2 shadow"
-                aria-label="Close"
+        <div className="flex flex-wrap gap-2">
+          {listing.status === "pending" ? (
+            <>
+              <Button
+                variant="success"
+                className="flex-1"
+                disabled={acting === listing.id || loading}
+                onClick={() => onAction(listing.id, "approve")}
               >
-                <X className="h-4 w-4" />
-              </button>
+                <Check className="h-4 w-4" /> Approve
+              </Button>
+              <Button
+                variant="danger-outline"
+                className="flex-1"
+                disabled={acting === listing.id || loading}
+                onClick={() =>
+                  onAction(listing.id, "reject", rejectReason.trim() || "Rejected by admin")
+                }
+              >
+                <X className="h-4 w-4" /> Reject
+              </Button>
+            </>
+          ) : listing.status === "approved" ? (
+            <Button
+              variant="success"
+              className="flex-1"
+              disabled={acting === listing.id}
+              onClick={() => onAction(listing.id, "live")}
+            >
+              Set live
+            </Button>
+          ) : (
+            <p className="text-xs text-nexa-ink-4">
+              Pause / unpublish requires POST /admin/stays/listings/:id/pause
+              (not yet available on Stays).
+            </p>
+          )}
+        </div>
+      </StickyActionBar>
+    ) : undefined;
+
+  return (
+    <DetailSheet
+      open={Boolean(listing)}
+      onClose={onClose}
+      title={listing?.title ?? "Listing"}
+      width="xl"
+      footer={footer}
+    >
+      {listing && (
+        <div>
+          <div className="relative h-52 w-full bg-nexa-bg-2">
+            {heroUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={heroUrl}
+                alt={listing.title}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <div
+                className="flex h-full w-full items-center justify-center"
+                style={{ backgroundColor: listing.thumbnailColor }}
+              >
+                {loading || mediaLoading ? (
+                  <Loader2 className="h-8 w-8 animate-spin text-white/80" />
+                ) : (
+                  <ImageIcon className="h-10 w-10 text-white/80" />
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="font-display text-xl font-semibold text-nexa-ink">
+                  {detail?.title ?? listing.title}
+                </h2>
+                <p className="mt-0.5 text-sm text-nexa-ink-3">
+                  {detail?.fullAddress ?? listing.address} · {detail?.city ?? listing.city}
+                </p>
+              </div>
+              <StatusBadge status={listing.status} />
             </div>
 
-            <div className="p-5">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h2 className="font-display text-xl font-semibold text-nexa-ink">
-                    {detail?.title ?? listing.title}
-                  </h2>
-                  <p className="mt-0.5 text-sm text-nexa-ink-3">
-                    {detail?.fullAddress ?? listing.address} · {detail?.city ?? listing.city}
-                  </p>
-                </div>
-                <StatusBadge status={listing.status} />
-              </div>
-
-              {loading && (
-                <p className="mt-4 flex items-center gap-2 text-sm text-nexa-ink-4">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Loading full listing details…
-                </p>
-              )}
-              {loadError && (
-                <p className="mt-4 text-sm text-nexa-danger">{loadError}</p>
-              )}
+            {loading && (
+              <p className="mt-4 flex items-center gap-2 text-sm text-nexa-ink-4">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading full listing details…
+              </p>
+            )}
+            {loadError && (
+              <p className="mt-4 text-sm text-nexa-danger">{loadError}</p>
+            )}
 
               {detail && (
                 <>
@@ -395,65 +435,10 @@ export function ListingReviewDrawer({
                   </Section>
                 </>
               )}
-
-              <div className="mt-6 space-y-3 border-t border-nexa-line pt-5">
-                {listing.status === "pending" && (
-                  <textarea
-                    value={rejectReason}
-                    onChange={(e) => setRejectReason(e.target.value)}
-                    placeholder="Rejection reason (optional)"
-                    rows={2}
-                    className="w-full rounded-lg border border-nexa-line px-3 py-2 text-sm outline-none focus:border-nexa-primary"
-                  />
-                )}
-                <div className="flex flex-wrap gap-2">
-                  {listing.status === "pending" ? (
-                    <>
-                      <Button
-                        variant="success"
-                        className="flex-1"
-                        disabled={acting === listing.id || loading}
-                        onClick={() => onAction(listing.id, "approve")}
-                      >
-                        <Check className="h-4 w-4" /> Approve
-                      </Button>
-                      <Button
-                        variant="danger-outline"
-                        className="flex-1"
-                        disabled={acting === listing.id || loading}
-                        onClick={() =>
-                          onAction(
-                            listing.id,
-                            "reject",
-                            rejectReason.trim() || "Rejected by admin",
-                          )
-                        }
-                      >
-                        <X className="h-4 w-4" /> Reject
-                      </Button>
-                    </>
-                  ) : listing.status === "approved" ? (
-                    <Button
-                      variant="success"
-                      className="flex-1"
-                      disabled={acting === listing.id}
-                      onClick={() => onAction(listing.id, "live")}
-                    >
-                      Set live
-                    </Button>
-                  ) : listing.status === "active" ? (
-                    <p className="text-xs text-nexa-ink-4">
-                      Pause / unpublish requires POST /admin/stays/listings/:id/pause
-                      (not yet available on Stays).
-                    </p>
-                  ) : null}
-                </div>
-              </div>
             </div>
           </div>
         )}
-      </aside>
-    </>
+    </DetailSheet>
   );
 }
 

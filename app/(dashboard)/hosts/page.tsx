@@ -9,6 +9,11 @@ import { Button } from "@/components/ui/button";
 import { Badge, StatusBadge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { SearchInput, FilterTabs } from "@/components/ui/toolbar";
+import { PageToolbar } from "@/components/ui/page-toolbar";
+import { CollectionCard, ResponsiveCollection } from "@/components/ui/collection";
+import { DetailSheet } from "@/components/ui/detail-sheet";
+import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
+import { StickyActionBar } from "@/components/ui/sticky-action-bar";
 import { Avatar } from "@/components/ui/avatar";
 import {
   approveHostApplication,
@@ -20,7 +25,7 @@ import {
   unfreezeHost,
 } from "@/lib/api/stays-admin";
 import { useAsyncList } from "@/lib/hooks/use-async-data";
-import { formatDate, cn } from "@/lib/utils";
+import { formatDate } from "@/lib/utils";
 import type { HostApplication, HostApplicationFilterStatus } from "@/lib/types";
 
 type Filter = "all" | HostApplicationFilterStatus;
@@ -176,42 +181,50 @@ function HostsPageInner() {
       />
 
       {error && (
-        <p className="mb-4 text-sm text-nexa-danger">
-          Failed to load hosts: {error}
-        </p>
+        <ErrorState
+          className="mb-4"
+          title="Failed to load hosts"
+          detail={error}
+          onRetry={() => void reload()}
+        />
       )}
 
-      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <FilterTabs<Filter>
-          value={filter}
-          onChange={updateFilter}
-          options={[
-            { value: "pending", label: "Pending", count: counts.pending ?? 0 },
-            { value: "approved", label: "Approved", count: counts.approved ?? 0 },
-            {
-              value: "needs_changes",
-              label: "Needs Changes",
-              count: counts.needs_changes ?? 0,
-            },
-            { value: "rejected", label: "Rejected", count: counts.rejected ?? 0 },
-            { value: "frozen", label: "Frozen", count: counts.frozen ?? 0 },
-            { value: "all", label: "All", count: counts.all },
-          ]}
-        />
-        <SearchInput
-          value={query}
-          onChange={setQuery}
-          placeholder="Search name, email, phone…"
-          className="lg:w-72"
-        />
-      </div>
+      <PageToolbar
+        className="mb-4"
+        filters={
+          <FilterTabs<Filter>
+            value={filter}
+            onChange={updateFilter}
+            options={[
+              { value: "pending", label: "Pending", count: counts.pending ?? 0 },
+              { value: "approved", label: "Approved", count: counts.approved ?? 0 },
+              {
+                value: "needs_changes",
+                label: "Needs Changes",
+                count: counts.needs_changes ?? 0,
+              },
+              { value: "rejected", label: "Rejected", count: counts.rejected ?? 0 },
+              { value: "frozen", label: "Frozen", count: counts.frozen ?? 0 },
+              { value: "all", label: "All", count: counts.all },
+            ]}
+          />
+        }
+        trailing={
+          <SearchInput
+            value={query}
+            onChange={setQuery}
+            placeholder="Search name, email, phone…"
+            className="lg:w-72"
+          />
+        }
+      />
 
       <Card>
-        {loading ? (
-          <p className="py-10 text-center text-sm text-nexa-ink-4">
-            Loading host applications…
-          </p>
+        {loading && applications.length === 0 ? (
+          <LoadingState label="Loading host applications…" />
         ) : (
+          <ResponsiveCollection
+            table={
           <Table>
             <THead>
               <tr>
@@ -326,11 +339,32 @@ function HostsPageInner() {
               ))}
             </tbody>
           </Table>
+            }
+            cards={
+              <div className="space-y-2 p-3">
+                {filtered.map((app) => (
+                  <CollectionCard key={app.id} onClick={() => setSelected(app)}>
+                    <div className="flex items-start gap-3">
+                      <Avatar name={app.name} color={app.avatarColor} size="sm" />
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-nexa-ink">{app.name}</p>
+                        <p className="text-xs text-nexa-ink-4">{app.email}</p>
+                        <div className="mt-2 flex items-center justify-between gap-2">
+                          <StatusBadge status={applicationStatusLabel(app.applicationStatus)} />
+                          <span className="text-xs text-nexa-ink-4">
+                            {app.submittedAt ? formatDate(app.submittedAt) : "—"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </CollectionCard>
+                ))}
+              </div>
+            }
+          />
         )}
         {!loading && filtered.length === 0 && (
-          <p className="py-10 text-center text-sm text-nexa-ink-4">
-            No hosts match your filters.
-          </p>
+          <EmptyState title="No hosts match your filters." />
         )}
       </Card>
 
@@ -441,19 +475,68 @@ function ApplicationDrawer({
 
   return (
     <>
-      <div
-        className={cn(
-          "fixed inset-0 z-50 bg-nexa-ink/40 transition-opacity",
-          application ? "opacity-100" : "pointer-events-none opacity-0",
-        )}
-        onClick={onClose}
-      />
-      <aside
-        className={cn(
-          "fixed inset-y-0 right-0 z-50 w-full max-w-md overflow-y-auto border-l border-nexa-line bg-white transition-transform",
-          application ? "translate-x-0" : "translate-x-full",
-        )}
-      >
+    <DetailSheet
+      open={Boolean(application)}
+      onClose={onClose}
+      title={application?.name ?? "Host"}
+      width="md"
+      footer={
+        application ? (
+          <StickyActionBar>
+            {canReview && (
+              <div className="space-y-3">
+                <textarea
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  rows={2}
+                  placeholder="Explain why the application was rejected…"
+                  className="w-full rounded-md border border-nexa-line px-3 py-2 text-sm text-nexa-ink placeholder:text-nexa-ink-4 focus:border-nexa-primary focus:outline-none focus:ring-1 focus:ring-nexa-primary"
+                />
+                <div className="flex gap-2">
+                  <Button
+                    variant="success"
+                    className="flex-1"
+                    disabled={acting === application.id}
+                    onClick={() => onAction(application.id, "approve")}
+                  >
+                    <Check className="h-4 w-4" /> Approve
+                  </Button>
+                  <Button
+                    variant="danger-outline"
+                    className="flex-1"
+                    disabled={acting === application.id}
+                    onClick={() => onAction(application.id, "reject", rejectReason)}
+                  >
+                    <X className="h-4 w-4" /> Needs Changes
+                  </Button>
+                </div>
+              </div>
+            )}
+            {application.applicationStatus === "APPROVED" && (
+              application.listingFrozen ? (
+                <Button
+                  variant="success"
+                  className="w-full"
+                  disabled={acting === application.id}
+                  onClick={() => onAction(application.id, "unfreeze")}
+                >
+                  Unfreeze host
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  disabled={acting === application.id}
+                  onClick={() => onAction(application.id, "freeze")}
+                >
+                  <Snowflake className="h-4 w-4" /> Freeze listings
+                </Button>
+              )
+            )}
+          </StickyActionBar>
+        ) : undefined
+      }
+    >
         {application && (
           <div className="p-5">
             <div className="flex items-start gap-3">
@@ -545,72 +628,9 @@ function ApplicationDrawer({
             )}
 
             <HostListings userId={application.userId} />
-
-            {canReview && (
-              <div className="mt-5 space-y-3">
-                <label className="block text-xs font-semibold uppercase text-nexa-ink-4">
-                  Rejection reason (optional)
-                </label>
-                <textarea
-                  value={rejectReason}
-                  onChange={(e) => setRejectReason(e.target.value)}
-                  rows={3}
-                  placeholder="Explain why the application was rejected…"
-                  className="w-full rounded-md border border-nexa-line px-3 py-2 text-sm text-nexa-ink placeholder:text-nexa-ink-4 focus:border-nexa-primary focus:outline-none focus:ring-1 focus:ring-nexa-primary"
-                />
-                <div className="flex gap-2">
-                  <Button
-                    variant="success"
-                    className="flex-1"
-                    disabled={acting === application.id}
-                    onClick={() => onAction(application.id, "approve")}
-                  >
-                    <Check className="h-4 w-4" /> Approve
-                  </Button>
-                  <Button
-                    variant="danger-outline"
-                    className="flex-1"
-                    disabled={acting === application.id}
-                    onClick={() =>
-                      onAction(application.id, "reject", rejectReason)
-                    }
-                  >
-                    <X className="h-4 w-4" /> Needs Changes
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {application.applicationStatus === "APPROVED" && (
-              <div className="mt-5">
-                {application.listingFrozen ? (
-                  <Button
-                    variant="success"
-                    className="w-full"
-                    disabled={acting === application.id}
-                    onClick={() => onAction(application.id, "unfreeze")}
-                  >
-                    Unfreeze host
-                  </Button>
-                ) : (
-                  <Button
-                    variant="outline"
-                    className="w-full"
-                    disabled={acting === application.id}
-                    onClick={() => onAction(application.id, "freeze")}
-                  >
-                    <Snowflake className="h-4 w-4" /> Freeze listings
-                  </Button>
-                )}
-              </div>
-            )}
-
-            <Button variant="ghost" className="mt-4 w-full" onClick={onClose}>
-              Close
-            </Button>
           </div>
         )}
-      </aside>
+    </DetailSheet>
 
       {lightbox && (
         <div

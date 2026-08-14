@@ -8,6 +8,9 @@ import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { FilterTabs, SearchInput } from "@/components/ui/toolbar";
+import { PageToolbar } from "@/components/ui/page-toolbar";
+import { CollectionCard, ResponsiveCollection } from "@/components/ui/collection";
+import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
 import { ApiUnavailable } from "@/components/ui/api-unavailable";
 import { fetchPayments } from "@/lib/api/finance-admin";
 import { useAsyncData } from "@/lib/hooks/use-async-data";
@@ -59,32 +62,39 @@ export default function PaymentsPage() {
           detail="GET /admin/stays/payments is not available yet. This queue will populate when Stays exposes payment intents."
         />
       )}
-      {error && <p className="mb-4 text-sm text-nexa-danger">{error}</p>}
+      {error && <ErrorState className="mb-4" title="Failed to load payments" detail={error} />}
 
-      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <FilterTabs<Filter>
-          value={filter}
-          onChange={setFilter}
-          options={[
-            { value: "all", label: "All", count: counts.all },
-            { value: "SUCCEEDED", label: "Succeeded", count: counts.SUCCEEDED ?? 0 },
-            { value: "FAILED", label: "Failed", count: counts.FAILED ?? 0 },
-            { value: "PENDING", label: "Pending", count: counts.PENDING ?? 0 },
-            { value: "REFUNDED", label: "Refunded", count: counts.REFUNDED ?? 0 },
-          ]}
-        />
-        <SearchInput
-          value={query}
-          onChange={setQuery}
-          placeholder="Search id, booking, provider…"
-          className="lg:w-72"
-        />
-      </div>
+      <PageToolbar
+        className="mb-4"
+        filters={
+          <FilterTabs<Filter>
+            value={filter}
+            onChange={setFilter}
+            options={[
+              { value: "all", label: "All", count: counts.all },
+              { value: "SUCCEEDED", label: "Succeeded", count: counts.SUCCEEDED ?? 0 },
+              { value: "FAILED", label: "Failed", count: counts.FAILED ?? 0 },
+              { value: "PENDING", label: "Pending", count: counts.PENDING ?? 0 },
+              { value: "REFUNDED", label: "Refunded", count: counts.REFUNDED ?? 0 },
+            ]}
+          />
+        }
+        trailing={
+          <SearchInput
+            value={query}
+            onChange={setQuery}
+            placeholder="Search id, booking, provider…"
+            className="lg:w-72"
+          />
+        }
+      />
 
       <Card>
-        {loading ? (
-          <p className="py-10 text-center text-sm text-nexa-ink-4">Loading payments…</p>
+        {loading && items.length === 0 ? (
+          <LoadingState label="Loading payments…" />
         ) : (
+          <ResponsiveCollection
+            table={
           <Table>
             <THead>
               <tr>
@@ -131,11 +141,40 @@ export default function PaymentsPage() {
               ))}
             </tbody>
           </Table>
+            }
+            cards={
+              <div className="space-y-2 p-3">
+                {filtered.map((p) => (
+                  <CollectionCard
+                    key={p.id}
+                    onClick={() =>
+                      router.push(
+                        `/bookings?q=${encodeURIComponent(p.bookingRef ?? p.bookingId ?? "")}`,
+                      )
+                    }
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="font-medium text-nexa-ink">{p.id.slice(0, 8)}</p>
+                        <p className="text-xs text-nexa-ink-4">
+                          {p.bookingRef ?? p.bookingId?.slice(0, 8) ?? "—"} · {p.provider ?? "—"}
+                        </p>
+                      </div>
+                      <StatusBadge status={p.status.toLowerCase()} />
+                    </div>
+                    <p className="mt-2 text-sm font-medium text-nexa-ink">
+                      {formatCurrency(p.amount, p.currency)}
+                    </p>
+                  </CollectionCard>
+                ))}
+              </div>
+            }
+          />
         )}
         {!loading && filtered.length === 0 && (
-          <p className="py-10 text-center text-sm text-nexa-ink-4">
-            {unavailable ? "No payment data until the Stays API is connected." : "No payments found."}
-          </p>
+          <EmptyState
+            title={unavailable ? "No payment data until the Stays API is connected." : "No payments found."}
+          />
         )}
       </Card>
     </div>

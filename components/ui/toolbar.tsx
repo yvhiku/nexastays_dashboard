@@ -46,7 +46,7 @@ export function FilterTabs<T extends string>({
             key={opt.value}
             onClick={() => onChange(opt.value)}
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
+              "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
               active
                 ? "bg-nexa-primary text-white"
                 : "bg-white border border-nexa-line text-nexa-ink-2 hover:bg-nexa-bg-2",

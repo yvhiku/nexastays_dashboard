@@ -10,6 +10,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
+import { ErrorState } from "@/components/ui/states";
 import {
   fetchOpsOverview,
   EMPTY_OPS_OVERVIEW,
@@ -83,9 +84,7 @@ export default function OperationsPage() {
       />
 
       {error && (
-        <p className="mb-4 text-sm text-nexa-danger">
-          Failed to load queues: {error}
-        </p>
+        <ErrorState className="mb-4" title="Failed to load queues" detail={error} />
       )}
 
       <ul className="divide-y divide-nexa-line overflow-hidden rounded-xl border border-nexa-line bg-white">

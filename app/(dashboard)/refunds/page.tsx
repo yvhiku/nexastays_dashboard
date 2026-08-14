@@ -9,6 +9,9 @@ import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { FilterTabs, SearchInput } from "@/components/ui/toolbar";
+import { PageToolbar } from "@/components/ui/page-toolbar";
+import { CollectionCard, ResponsiveCollection } from "@/components/ui/collection";
+import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
 import { ApiUnavailable } from "@/components/ui/api-unavailable";
 import { fetchRefunds } from "@/lib/api/finance-admin";
 import { useAsyncData } from "@/lib/hooks/use-async-data";
@@ -59,31 +62,38 @@ export default function RefundsPage() {
           detail="GET /admin/stays/refunds is not available yet. When it lands, this queue lists REFUND ledger entries. POST /admin/stays/bookings/:id/refunds will create new entries — never PATCH existing ones."
         />
       )}
-      {error && <p className="mb-4 text-sm text-nexa-danger">{error}</p>}
+      {error && <ErrorState className="mb-4" title="Failed to load refunds" detail={error} />}
 
-      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <FilterTabs<Filter>
-          value={filter}
-          onChange={setFilter}
-          options={[
-            { value: "all", label: "All", count: counts.all },
-            { value: "PENDING", label: "Pending", count: counts.PENDING ?? 0 },
-            { value: "SETTLED", label: "Settled", count: counts.SETTLED ?? 0 },
-            { value: "FAILED", label: "Failed", count: counts.FAILED ?? 0 },
-          ]}
-        />
-        <SearchInput
-          value={query}
-          onChange={setQuery}
-          placeholder="Search refund or booking…"
-          className="lg:w-72"
-        />
-      </div>
+      <PageToolbar
+        className="mb-4"
+        filters={
+          <FilterTabs<Filter>
+            value={filter}
+            onChange={setFilter}
+            options={[
+              { value: "all", label: "All", count: counts.all },
+              { value: "PENDING", label: "Pending", count: counts.PENDING ?? 0 },
+              { value: "SETTLED", label: "Settled", count: counts.SETTLED ?? 0 },
+              { value: "FAILED", label: "Failed", count: counts.FAILED ?? 0 },
+            ]}
+          />
+        }
+        trailing={
+          <SearchInput
+            value={query}
+            onChange={setQuery}
+            placeholder="Search refund or booking…"
+            className="lg:w-72"
+          />
+        }
+      />
 
       <Card>
-        {loading ? (
-          <p className="py-10 text-center text-sm text-nexa-ink-4">Loading refunds…</p>
+        {loading && items.length === 0 ? (
+          <LoadingState label="Loading refunds…" />
         ) : (
+          <ResponsiveCollection
+            table={
           <Table>
             <THead>
               <tr>
@@ -128,11 +138,41 @@ export default function RefundsPage() {
               ))}
             </tbody>
           </Table>
+            }
+            cards={
+              <div className="space-y-2 p-3">
+                {filtered.map((r) => (
+                  <CollectionCard
+                    key={r.id}
+                    onClick={
+                      r.bookingId || r.bookingRef
+                        ? () =>
+                            router.push(
+                              `/bookings?q=${encodeURIComponent(r.bookingRef ?? r.bookingId ?? "")}`,
+                            )
+                        : undefined
+                    }
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="font-medium text-nexa-ink">{r.id.slice(0, 8)}</p>
+                      <StatusBadge status={r.status.toLowerCase()} />
+                    </div>
+                    <p className="mt-1 text-xs text-nexa-ink-4">
+                      {r.bookingRef ?? r.bookingId?.slice(0, 8) ?? "—"}
+                    </p>
+                    <p className="mt-2 text-sm font-medium">
+                      {formatCurrency(r.amount, r.currency)}
+                    </p>
+                  </CollectionCard>
+                ))}
+              </div>
+            }
+          />
         )}
         {!loading && filtered.length === 0 && (
-          <p className="py-10 text-center text-sm text-nexa-ink-4">
-            {unavailable ? "No refund data until the Stays API is connected." : "No refunds found."}
-          </p>
+          <EmptyState
+            title={unavailable ? "No refund data until the Stays API is connected." : "No refunds found."}
+          />
         )}
       </Card>
     </div>

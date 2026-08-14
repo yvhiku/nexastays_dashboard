@@ -7,6 +7,9 @@ import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge, StatusBadge } from "@/components/ui/badge";
 import { FilterTabs, SearchInput } from "@/components/ui/toolbar";
+import { PageToolbar } from "@/components/ui/page-toolbar";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
 import { HBar } from "@/components/charts/charts";
 import { fetchReviews, hideReview, publishReview, deleteReview } from "@/lib/api/stays-admin";
 import { useAsyncList } from "@/lib/hooks/use-async-data";
@@ -56,10 +59,10 @@ export default function ReviewsPage() {
       />
 
       {error && (
-        <p className="mb-4 text-sm text-nexa-danger">Failed to load reviews: {error}</p>
+        <ErrorState className="mb-4" title="Failed to load reviews" detail={error} />
       )}
-      {loading && (
-        <p className="mb-4 text-sm text-nexa-ink-4">Loading reviews…</p>
+      {loading && reviews.length === 0 && (
+        <LoadingState className="mb-4" label="Loading reviews…" />
       )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -154,26 +157,31 @@ export default function ReviewsPage() {
         </Card>
       </div>
 
-      <div className="mt-6 mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <FilterTabs<Filter>
-          value={filter}
-          onChange={setFilter}
-          options={[
-            { value: "all", label: "All", count: counts.all },
-            { value: "published", label: "Published", count: counts.published },
-            { value: "flagged", label: "Flagged", count: counts.flagged },
-            { value: "removed", label: "Removed", count: counts.removed },
-          ]}
-        />
-        <SearchInput value={query} onChange={setQuery} placeholder="Search reviews…" className="lg:w-72" />
-      </div>
+      <PageToolbar
+        className="mt-6 mb-4"
+        filters={
+          <FilterTabs<Filter>
+            value={filter}
+            onChange={setFilter}
+            options={[
+              { value: "all", label: "All", count: counts.all },
+              { value: "published", label: "Published", count: counts.published },
+              { value: "flagged", label: "Flagged", count: counts.flagged },
+              { value: "removed", label: "Removed", count: counts.removed },
+            ]}
+          />
+        }
+        trailing={
+          <SearchInput value={query} onChange={setQuery} placeholder="Search reviews…" className="lg:w-72" />
+        }
+      />
 
       <div className="space-y-3">
         {filtered.map((r) => (
           <ReviewRow key={r.id} review={r} onChanged={reload} />
         ))}
         {filtered.length === 0 && (
-          <p className="py-10 text-center text-sm text-nexa-ink-4">No reviews found.</p>
+          <EmptyState title="No reviews found." />
         )}
       </div>
     </div>
@@ -188,20 +196,28 @@ function ReviewRow({
   onChanged: () => Promise<void> | void;
 }) {
   const [acting, setActing] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
 
   async function run(action: "hide" | "publish" | "remove") {
-    const confirmRemove =
-      action === "remove"
-        ? window.confirm(
-            "Remove this review? This is audited server-side and is not a silent delete.",
-          )
-        : true;
-    if (!confirmRemove) return;
+    if (action === "remove") {
+      setConfirmRemove(true);
+      return;
+    }
     setActing(true);
     try {
       if (action === "hide") await hideReview(review.id);
-      else if (action === "publish") await publishReview(review.id);
-      else await deleteReview(review.id);
+      else await publishReview(review.id);
+      await onChanged();
+    } finally {
+      setActing(false);
+    }
+  }
+
+  async function confirmDelete() {
+    setActing(true);
+    try {
+      await deleteReview(review.id);
+      setConfirmRemove(false);
       await onChanged();
     } finally {
       setActing(false);
@@ -280,6 +296,16 @@ function ReviewRow({
           )}
         </div>
       </div>
+      <ConfirmDialog
+        open={confirmRemove}
+        title="Remove this review?"
+        description="This is audited server-side and is not a silent delete."
+        confirmLabel="Remove"
+        danger
+        busy={acting}
+        onConfirm={() => void confirmDelete()}
+        onCancel={() => setConfirmRemove(false)}
+      />
     </Card>
   );
 }

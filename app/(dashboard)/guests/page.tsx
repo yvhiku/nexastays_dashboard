@@ -9,13 +9,19 @@ import { Button } from "@/components/ui/button";
 import { Badge, StatusBadge } from "@/components/ui/badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/table";
 import { SearchInput, FilterTabs } from "@/components/ui/toolbar";
+import { PageToolbar } from "@/components/ui/page-toolbar";
+import { CollectionCard, ResponsiveCollection } from "@/components/ui/collection";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { DetailSheet } from "@/components/ui/detail-sheet";
+import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
+import { StickyActionBar } from "@/components/ui/sticky-action-bar";
 import { Avatar } from "@/components/ui/avatar";
 import { fetchUsers, fetchUserDrawerDetails, type UserDrawerDetails } from "@/lib/api/users-admin";
 import { updateUserAccountStatus } from "@/lib/api/identity-admin";
 import { approveHost, rejectHost } from "@/lib/api/stays-admin";
 import { useAsyncList } from "@/lib/hooks/use-async-data";
 import { RelativeTime } from "@/components/ui/relative-time";
-import { formatCurrency, formatDate, cn } from "@/lib/utils";
+import { formatCurrency, formatDate } from "@/lib/utils";
 import type { AppUser } from "@/lib/types";
 
 type Filter = "all" | "active" | "suspended" | "banned";
@@ -34,6 +40,10 @@ function GuestsPageInner() {
   const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
   const [selected, setSelected] = useState<AppUser | null>(null);
   const [acting, setActing] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<{
+    user: AppUser;
+    next: "SUSPENDED" | "ACTIVE";
+  } | null>(null);
   const { data: users, loading, error, reload } = useAsyncList(fetchUsers, []);
 
   useEffect(() => {
@@ -78,16 +88,17 @@ function GuestsPageInner() {
   }
 
   async function runGuestStatus(user: AppUser, next: "SUSPENDED" | "ACTIVE") {
-    const ok = window.confirm(
-      next === "SUSPENDED"
-        ? `Suspend ${user.name}? They will be marked SUSPENDED in Identity.`
-        : `Reactivate ${user.name} and restore ACTIVE status?`,
-    );
-    if (!ok) return;
+    setConfirm({ user, next });
+  }
+
+  async function confirmGuestStatus() {
+    if (!confirm) return;
+    const { user, next } = confirm;
     setActing(user.id);
     try {
       await updateUserAccountStatus(user.id, next);
       await reload();
+      setConfirm(null);
     } finally {
       setActing(null);
     }
@@ -101,32 +112,39 @@ function GuestsPageInner() {
       />
 
       {error && (
-        <p className="mb-4 text-sm text-nexa-danger">Failed to load guests: {error}</p>
+        <ErrorState className="mb-4" title="Failed to load guests" detail={error} />
       )}
-      {loading && (
-        <p className="mb-4 text-sm text-nexa-ink-4">Loading guests…</p>
+      {loading && guests.length === 0 && (
+        <LoadingState className="mb-4" label="Loading guests…" />
       )}
 
-      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <FilterTabs<Filter>
-          value={filter}
-          onChange={setFilter}
-          options={[
-            { value: "all", label: "All", count: counts.all },
-            { value: "active", label: "Active", count: counts.active },
-            { value: "suspended", label: "Suspended", count: counts.suspended },
-            { value: "banned", label: "Banned", count: counts.banned },
-          ]}
-        />
-        <SearchInput
-          value={query}
-          onChange={setQuery}
-          placeholder="Search name or email…"
-          className="lg:w-72"
-        />
-      </div>
+      <PageToolbar
+        className="mb-4"
+        filters={
+          <FilterTabs<Filter>
+            value={filter}
+            onChange={setFilter}
+            options={[
+              { value: "all", label: "All", count: counts.all },
+              { value: "active", label: "Active", count: counts.active },
+              { value: "suspended", label: "Suspended", count: counts.suspended },
+              { value: "banned", label: "Banned", count: counts.banned },
+            ]}
+          />
+        }
+        trailing={
+          <SearchInput
+            value={query}
+            onChange={setQuery}
+            placeholder="Search name or email…"
+            className="lg:w-72"
+          />
+        }
+      />
 
       <Card>
+        <ResponsiveCollection
+          table={
         <Table>
           <THead>
             <tr>
@@ -222,8 +240,24 @@ function GuestsPageInner() {
             ))}
           </tbody>
         </Table>
+          }
+          cards={
+            <div className="space-y-2 p-3">
+              {filtered.map((u) => (
+                <CollectionCard key={u.id} onClick={() => setSelected(u)}>
+                  <p className="font-medium text-nexa-ink">{u.name}</p>
+                  <p className="text-xs text-nexa-ink-4">{u.email}</p>
+                  <div className="mt-2 flex items-center justify-between">
+                    <StatusBadge status={u.status} />
+                    <span className="text-xs text-nexa-ink-4">{u.city}</span>
+                  </div>
+                </CollectionCard>
+              ))}
+            </div>
+          }
+        />
         {filtered.length === 0 && (
-          <p className="py-10 text-center text-sm text-nexa-ink-4">No users found.</p>
+          <EmptyState title="No users found." />
         )}
       </Card>
 
@@ -235,6 +269,20 @@ function GuestsPageInner() {
           const fresh = (await fetchUsers()).find((u) => u.id === userId);
           if (fresh) setSelected(fresh);
         }}
+      />
+      <ConfirmDialog
+        open={Boolean(confirm)}
+        title={confirm?.next === "SUSPENDED" ? "Suspend guest?" : "Reactivate guest?"}
+        description={
+          confirm?.next === "SUSPENDED"
+            ? `${confirm.user.name} will be marked SUSPENDED in Identity.`
+            : `${confirm?.user.name} will be restored to ACTIVE status.`
+        }
+        confirmLabel={confirm?.next === "SUSPENDED" ? "Suspend" : "Reactivate"}
+        danger={confirm?.next === "SUSPENDED"}
+        busy={Boolean(confirm && acting === confirm.user.id)}
+        onConfirm={() => void confirmGuestStatus()}
+        onCancel={() => setConfirm(null)}
       />
     </div>
   );
@@ -253,6 +301,7 @@ function UserDrawer({
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
+  const [confirmAction, setConfirmAction] = useState<"suspend" | "reactivate" | null>(null);
 
   const isRestricted =
     user?.status === "suspended" || user?.status === "banned";
@@ -261,36 +310,28 @@ function UserDrawer({
 
   async function handleSuspend() {
     if (!user || !canSuspend) return;
-    const ok = window.confirm(
-      `Suspend ${user.name}?\n\nThey will be marked SUSPENDED in Identity. Reactivate anytime with Reset status.`,
-    );
-    if (!ok) return;
-    setStatusUpdating(true);
-    setStatusError(null);
-    try {
-      await updateUserAccountStatus(user.id, "SUSPENDED");
-      await onStatusChanged(user.id);
-    } catch (err) {
-      setStatusError(
-        err instanceof Error ? err.message : "Failed to suspend user",
-      );
-    } finally {
-      setStatusUpdating(false);
-    }
+    setConfirmAction("suspend");
   }
 
   async function handleReactivate() {
     if (!user || !canReactivate) return;
-    const ok = window.confirm(`Reactivate ${user.name} and restore ACTIVE status?`);
-    if (!ok) return;
+    setConfirmAction("reactivate");
+  }
+
+  async function runConfirmedStatus() {
+    if (!user || !confirmAction) return;
     setStatusUpdating(true);
     setStatusError(null);
     try {
-      await updateUserAccountStatus(user.id, "ACTIVE");
+      await updateUserAccountStatus(
+        user.id,
+        confirmAction === "suspend" ? "SUSPENDED" : "ACTIVE",
+      );
+      setConfirmAction(null);
       await onStatusChanged(user.id);
     } catch (err) {
       setStatusError(
-        err instanceof Error ? err.message : "Failed to reactivate user",
+        err instanceof Error ? err.message : "Failed to update user",
       );
     } finally {
       setStatusUpdating(false);
@@ -299,6 +340,7 @@ function UserDrawer({
 
   useEffect(() => {
     setStatusError(null);
+    setConfirmAction(null);
   }, [user?.id, user?.status]);
 
   useEffect(() => {
@@ -336,19 +378,41 @@ function UserDrawer({
 
   return (
     <>
-      <div
-        className={cn(
-          "fixed inset-0 z-50 bg-nexa-ink/40 transition-opacity",
-          user ? "opacity-100" : "pointer-events-none opacity-0",
-        )}
-        onClick={onClose}
-      />
-      <aside
-        className={cn(
-          "fixed inset-y-0 right-0 z-50 w-full max-w-md overflow-y-auto border-l border-nexa-line bg-white transition-transform",
-          user ? "translate-x-0" : "translate-x-full",
-        )}
-      >
+    <DetailSheet
+      open={Boolean(user)}
+      onClose={onClose}
+      title={user?.name ?? "Guest"}
+      width="md"
+      footer={
+        user ? (
+          <StickyActionBar>
+            {statusError && (
+              <p className="mb-2 text-sm text-nexa-danger">{statusError}</p>
+            )}
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                className="flex-1"
+                disabled={!canReactivate || statusUpdating}
+                onClick={handleReactivate}
+              >
+                <RotateCcw className="h-4 w-4" />
+                {statusUpdating ? "Updating…" : "Reset status"}
+              </Button>
+              <Button
+                variant="danger-outline"
+                className="flex-1"
+                disabled={!canSuspend || statusUpdating}
+                onClick={handleSuspend}
+              >
+                <Ban className="h-4 w-4" />
+                {statusUpdating ? "Updating…" : "Suspend"}
+              </Button>
+            </div>
+          </StickyActionBar>
+        ) : undefined
+      }
+    >
         {user && (
           <div className="p-5">
             <div className="flex items-center gap-4">
@@ -409,34 +473,23 @@ function UserDrawer({
                 </ol>
               )}
             </div>
-
-            {statusError && (
-              <p className="mt-4 text-sm text-nexa-danger">{statusError}</p>
-            )}
-
-            <div className="mt-6 flex gap-2">
-              <Button
-                variant="outline"
-                className="flex-1"
-                disabled={!canReactivate || statusUpdating}
-                onClick={handleReactivate}
-              >
-                <RotateCcw className="h-4 w-4" />
-                {statusUpdating ? "Updating…" : "Reset status"}
-              </Button>
-              <Button
-                variant="danger-outline"
-                className="flex-1"
-                disabled={!canSuspend || statusUpdating}
-                onClick={handleSuspend}
-              >
-                <Ban className="h-4 w-4" />
-                {statusUpdating ? "Updating…" : "Suspend"}
-              </Button>
-            </div>
           </div>
         )}
-      </aside>
+    </DetailSheet>
+    <ConfirmDialog
+      open={Boolean(confirmAction)}
+      title={confirmAction === "suspend" ? "Suspend guest?" : "Reactivate guest?"}
+      description={
+        confirmAction === "suspend"
+          ? `${user?.name} will be marked SUSPENDED in Identity. Reactivate anytime with Reset status.`
+          : `${user?.name} will be restored to ACTIVE status.`
+      }
+      confirmLabel={confirmAction === "suspend" ? "Suspend" : "Reactivate"}
+      danger={confirmAction === "suspend"}
+      busy={statusUpdating}
+      onConfirm={() => void runConfirmedStatus()}
+      onCancel={() => setConfirmAction(null)}
+    />
     </>
   );
 }
