@@ -786,6 +786,7 @@ export async function fetchListingsPage(options?: {
   sort?: "oldest" | "newest" | "priority";
   limit?: number;
   offset?: number;
+  hostUserId?: string;
 }): Promise<ListingsPageResult> {
   const limit = options?.limit ?? 50;
   const offset = options?.offset ?? 0;
@@ -798,6 +799,7 @@ export async function fetchListingsPage(options?: {
   const sort = options?.sort;
   if (sort) params.set("sort", sort);
   else if (apiStatus === "SUBMITTED") params.set("sort", "oldest");
+  if (options?.hostUserId) params.set("hostUserId", options.hostUserId);
 
   const data = await apiFetch<{
     items: ApiListing[];
@@ -833,6 +835,35 @@ export async function fetchBookings(status?: string) {
     `/admin/stays/bookings${q}`,
   );
   return data.items.map(mapBooking);
+}
+
+export async function fetchBookingsPage(options?: {
+  status?: string;
+  limit?: number;
+  offset?: number;
+  guestUserId?: string;
+  hostUserId?: string;
+}): Promise<{ items: Booking[]; total: number; limit: number; offset: number }> {
+  const limit = options?.limit ?? 50;
+  const offset = options?.offset ?? 0;
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  });
+  if (options?.status && options.status !== "all") {
+    params.set("status", options.status);
+  }
+  if (options?.guestUserId) params.set("guestUserId", options.guestUserId);
+  if (options?.hostUserId) params.set("hostUserId", options.hostUserId);
+  const data = await apiFetch<
+    Paginated<Parameters<typeof mapBooking>[0]> & { limit?: number; offset?: number }
+  >(`/admin/stays/bookings?${params.toString()}`);
+  return {
+    items: data.items.map(mapBooking),
+    total: data.total,
+    limit: data.limit ?? limit,
+    offset: data.offset ?? offset,
+  };
 }
 
 type ApiBookingDetail = Parameters<typeof mapBooking>[0] & {
@@ -952,16 +983,133 @@ export async function fetchHosts() {
   return data.items.map(mapHost);
 }
 
-export async function fetchReviews() {
+export type StaysPersonHostProfile = {
+  id: string;
+  userId: string;
+  applicationStatus: string;
+  hostVerificationStatus: string;
+  identityStatus: string;
+  city: string | null;
+  listingFrozen: boolean;
+  documentType: string | null;
+  documentFrontAssetId: string | null;
+  documentBackAssetId: string | null;
+  selfieAssetId: string | null;
+  submittedAt: string | null;
+  reviewedAt: string | null;
+  rejectionReason: string | null;
+};
+
+export type StaysPersonCompactListing = {
+  id: string;
+  title: string;
+  status: string;
+  city: string;
+  price: number;
+  bookingCount: number;
+  rating: number | null;
+};
+
+export type StaysPersonCompactBooking = {
+  id: string;
+  reference: string;
+  status: string;
+  checkinDate: string | null;
+  checkoutDate: string | null;
+  listingId: string;
+  amount: number;
+};
+
+export type StaysPersonCompactTicket = {
+  id: string;
+  ticketNumber: string;
+  status: string;
+  subject: string;
+  createdAt: string;
+};
+
+export type StaysPersonOverview = {
+  userId: string;
+  hostProfile: StaysPersonHostProfile | null;
+  listings: {
+    total: number;
+    byStatus: Record<string, number>;
+    items: StaysPersonCompactListing[];
+  };
+  bookingsAsHost: {
+    total: number;
+    upcoming: number;
+    completed: number;
+    cancelled: number;
+    totalPayout: number;
+    items: StaysPersonCompactBooking[];
+  };
+  bookingsAsGuest: {
+    total: number;
+    upcoming: number;
+    completed: number;
+    cancelled: number;
+    totalPaid: number;
+    items: StaysPersonCompactBooking[];
+  };
+  reviews: {
+    asGuest: { written: number };
+    asHost: { received: number; averageRating: number | null };
+  };
+  trust: {
+    reportsMade: number;
+    reportsAgainst: number;
+    safetyIssuesMade: number;
+    safetyIssuesAgainst: number;
+  };
+  tickets: {
+    total: number;
+    open: number;
+    items: StaysPersonCompactTicket[];
+  };
+};
+
+/** Stays operational half of Admin 360. Bounded latest items; full history via filtered list endpoints. */
+export async function fetchStaysPerson(userId: string): Promise<StaysPersonOverview> {
+  return apiFetch<StaysPersonOverview>(
+    `/admin/stays/people/${encodeURIComponent(userId)}`,
+  );
+}
+
+export async function fetchReviews(options?: {
+  guestUserId?: string;
+  hostUserId?: string;
+  status?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  const params = new URLSearchParams({
+    limit: String(options?.limit ?? 200),
+    offset: String(options?.offset ?? 0),
+  });
+  if (options?.guestUserId) params.set("guestUserId", options.guestUserId);
+  if (options?.hostUserId) params.set("hostUserId", options.hostUserId);
+  if (options?.status) params.set("status", options.status);
   const data = await apiFetch<Paginated<Parameters<typeof mapReview>[0]>>(
-    "/admin/stays/reviews?limit=200",
+    `/admin/stays/reviews?${params.toString()}`,
   );
   return data.items.map(mapReview);
 }
 
-export async function fetchAuditLogs() {
+export async function fetchAuditLogs(options?: {
+  actorUserId?: string;
+  entityId?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  const params = new URLSearchParams({
+    limit: String(options?.limit ?? 200),
+    offset: String(options?.offset ?? 0),
+  });
+  if (options?.actorUserId) params.set("actorUserId", options.actorUserId);
+  if (options?.entityId) params.set("entityId", options.entityId);
   const data = await apiFetch<Paginated<Parameters<typeof mapAuditLog>[0]>>(
-    "/admin/stays/audit-logs?limit=200",
+    `/admin/stays/audit-logs?${params.toString()}`,
   );
   return data.items.map(mapAuditLog);
 }
@@ -1105,6 +1253,9 @@ function mapTicket(row: Record<string, unknown>): Ticket {
       | string
       | undefined,
     conversationId: (row.conversation_id ?? row.conversationId) as string | undefined,
+    requesterUserId: (row.requester_user_id ?? row.requesterUserId) as
+      | string
+      | undefined,
     sla: mapSla(row.sla),
     routingSuggestion: routing
       ? {
@@ -1671,6 +1822,7 @@ export type ReportsQuery = {
   category?: string;
   reporterUserId?: string;
   reportedUserId?: string;
+  userId?: string;
   bookingId?: string;
   listingId?: string;
   search?: string;
@@ -1768,6 +1920,7 @@ function reportsQueryString(query: ReportsQuery): string {
   if (query.category) params.set("category", query.category);
   if (query.reporterUserId) params.set("reporterUserId", query.reporterUserId);
   if (query.reportedUserId) params.set("reportedUserId", query.reportedUserId);
+  if (query.userId) params.set("userId", query.userId);
   if (query.bookingId) params.set("bookingId", query.bookingId);
   if (query.listingId) params.set("listingId", query.listingId);
   if (query.search?.trim()) params.set("search", query.search.trim());

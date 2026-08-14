@@ -247,6 +247,7 @@ export interface Ticket {
   unreadForSupport?: boolean;
   lastMessagePreview?: string;
   conversationId?: string;
+  requesterUserId?: string;
   sla?: SupportSlaPayload;
   routingSuggestion?: { suggestedPriority: TicketPriority; reason: string };
   csat?: TicketCsat | null;

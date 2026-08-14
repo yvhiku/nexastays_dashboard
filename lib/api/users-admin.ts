@@ -99,6 +99,98 @@ async function fetchIdentityUsers(): Promise<AppUser[]> {
     .map(mapIdentityUser);
 }
 
+export type AdminUserPhone = {
+  phoneNumber: string;
+  isPrimary: boolean;
+  isVerified: boolean;
+  verifiedAt: string | null;
+};
+
+/** Identity GET /admin/users/:id — person half of Admin 360. DOB stays on this detail only. */
+export type AdminUserDetail = {
+  id: string;
+  phoneNumber: string | null;
+  fullName: string | null;
+  email: string | null;
+  city: string | null;
+  dateOfBirth: string | null;
+  nationality: string | null;
+  address: string | null;
+  phones: AdminUserPhone[];
+  profilePhotoUrl: string | null;
+  accountType: string;
+  linkedUserId: string | null;
+  kycStatus: string;
+  riskScore: number;
+  accountStatus: string;
+  deletionStatus: string;
+  deletionRequestedAt: string | null;
+  deletionScheduledFor: string | null;
+  piiAnonymizedAt: string | null;
+  createdAt: string;
+  lastLoginAt: string | null;
+};
+
+export async function fetchAdminUser(id: string): Promise<AdminUserDetail> {
+  const row = await apiFetch<{
+    id: string;
+    phone_number?: string | null;
+    full_name?: string | null;
+    email?: string | null;
+    city?: string | null;
+    date_of_birth?: string | null;
+    nationality?: string | null;
+    address?: string | null;
+    phones?: Array<{
+      phone_number?: string | null;
+      is_primary?: boolean;
+      is_verified?: boolean;
+      verified_at?: string | null;
+    }>;
+    profile_photo_url?: string | null;
+    account_type?: string;
+    linked_user_id?: string | null;
+    kyc_status?: string;
+    risk_score?: number;
+    account_status?: string;
+    deletion_status?: string;
+    deletion_requested_at?: string | null;
+    deletion_scheduled_for?: string | null;
+    pii_anonymized_at?: string | null;
+    created_at?: string;
+    last_login_at?: string | null;
+  }>(`/admin/users/${encodeURIComponent(id)}`, { base: "identity" });
+
+  return {
+    id: row.id,
+    phoneNumber: row.phone_number ?? null,
+    fullName: row.full_name ?? null,
+    email: row.email ?? null,
+    city: row.city ?? null,
+    dateOfBirth: row.date_of_birth ?? null,
+    nationality: row.nationality ?? null,
+    address: row.address ?? null,
+    phones: (row.phones ?? []).map((p) => ({
+      phoneNumber: p.phone_number ?? "",
+      isPrimary: Boolean(p.is_primary),
+      isVerified: Boolean(p.is_verified),
+      verifiedAt: p.verified_at ?? null,
+    })),
+    profilePhotoUrl: row.profile_photo_url ?? null,
+    accountType: row.account_type || "CONSUMER",
+    linkedUserId: row.linked_user_id ?? null,
+    kycStatus: row.kyc_status || "UNVERIFIED",
+    riskScore: Number(row.risk_score || 0),
+    accountStatus: row.account_status ?? "ACTIVE",
+    deletionStatus: row.deletion_status ?? "NONE",
+    deletionRequestedAt: row.deletion_requested_at ?? null,
+    deletionScheduledFor: row.deletion_scheduled_for ?? null,
+    piiAnonymizedAt: row.pii_anonymized_at ?? null,
+    createdAt: row.created_at ?? "",
+    lastLoginAt: row.last_login_at ?? null,
+  };
+}
+
 function mergeHostOverlay(user: AppUser, host: AppUser): AppUser {
   const kycRank: Record<KycStatus, number> = {
     verified: 3,
@@ -118,7 +210,7 @@ function mergeHostOverlay(user: AppUser, host: AppUser): AppUser {
     city: host.city !== "—" ? host.city : user.city,
     listingsCount: host.listingsCount,
     joinedAt: user.joinedAt || host.joinedAt,
-    lastActiveAt: host.lastActiveAt || user.lastActiveAt,
+    lastActiveAt: user.lastActiveAt || host.lastActiveAt,
   };
 }
 
