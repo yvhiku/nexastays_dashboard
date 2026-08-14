@@ -1003,8 +1003,6 @@ function SupportWorkspace({
   );
 }
 
-}
-
 function SignalCard({
   signal,
   onAcknowledged,
