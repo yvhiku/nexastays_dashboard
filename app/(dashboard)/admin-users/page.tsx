@@ -6,10 +6,12 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
 import { useAuth } from "@/components/providers/auth-provider";
 import {
+  createSupportAgent,
   fetchStaffAccounts,
   updateStaffRole,
   type StaffAccount,
@@ -104,6 +106,13 @@ export default function AdminUsersPage() {
   } | null>(null);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [createNotice, setCreateNotice] = useState<string | null>(null);
 
   const roles = session?.roles?.length
     ? session.roles
@@ -137,6 +146,42 @@ export default function AdminUsersPage() {
       setActionError(err instanceof Error ? err.message : "Unable to change staff role.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function onCreateAgent(e: React.FormEvent) {
+    e.preventDefault();
+    setCreateError(null);
+    setCreateNotice(null);
+    if (password !== confirmPassword) {
+      setCreateError("Passwords do not match.");
+      return;
+    }
+    if (password.length < 10) {
+      setCreateError("Password must be at least 10 characters.");
+      return;
+    }
+    setCreating(true);
+    try {
+      const created = await createSupportAgent({
+        email,
+        fullName,
+        password,
+      });
+      setFullName("");
+      setEmail("");
+      setPassword("");
+      setConfirmPassword("");
+      setCreateNotice(
+        `Give ${created.email} and that password to the agent. They sign in at /login and only see Support.`,
+      );
+      await reload();
+    } catch (err) {
+      setCreateError(
+        err instanceof Error ? err.message : "Unable to create support agent.",
+      );
+    } finally {
+      setCreating(false);
     }
   }
 
@@ -177,6 +222,81 @@ export default function AdminUsersPage() {
           </div>
         </CardContent>
       </Card>
+
+      {canManage && (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Create Support Agent</CardTitle>
+            <CardDescription>
+              Provision an agent with their own email and password. Hand those
+              credentials to the agent — they use the same /login and only see Support.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {createError && (
+              <ErrorState className="mb-4" title="Could not create agent" detail={createError} />
+            )}
+            {createNotice && (
+              <p className="mb-4 rounded-md bg-nexa-success-soft px-3 py-2 text-sm text-nexa-success">
+                {createNotice}
+              </p>
+            )}
+            <form onSubmit={(e) => void onCreateAgent(e)} className="grid gap-4 sm:grid-cols-2">
+              <label className="block text-sm">
+                <span className="text-nexa-ink-3">Full name</span>
+                <input
+                  type="text"
+                  required
+                  autoComplete="off"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-nexa-line px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="text-nexa-ink-3">Email</span>
+                <input
+                  type="email"
+                  required
+                  autoComplete="off"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-nexa-line px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="text-nexa-ink-3">Password</span>
+                <input
+                  type="password"
+                  required
+                  minLength={10}
+                  autoComplete="new-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-nexa-line px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="text-nexa-ink-3">Confirm password</span>
+                <input
+                  type="password"
+                  required
+                  minLength={10}
+                  autoComplete="new-password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-nexa-line px-3 py-2 text-sm"
+                />
+              </label>
+              <div className="sm:col-span-2">
+                <Button type="submit" disabled={creating}>
+                  {creating ? "Creating…" : "Create Support Agent"}
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+      )}
 
       {canManage && (
         <Card className="mb-6">

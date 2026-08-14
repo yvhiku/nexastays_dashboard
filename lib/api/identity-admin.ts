@@ -202,3 +202,26 @@ export async function updateStaffRole(
     },
   );
 }
+
+export type CreatedSupportAgent = {
+  id: string;
+  email: string;
+  fullName: string;
+  staffRole: "SUPPORT_AGENT";
+};
+
+export async function createSupportAgent(input: {
+  email: string;
+  fullName: string;
+  password: string;
+}): Promise<CreatedSupportAgent> {
+  return apiFetch<CreatedSupportAgent>("/admin/users/support-agents", {
+    base: "identity",
+    method: "POST",
+    body: JSON.stringify({
+      email: input.email,
+      fullName: input.fullName,
+      password: input.password,
+    }),
+  });
+}
