@@ -5,7 +5,7 @@ import { Topbar } from "@/components/layout/topbar";
 
 export function AppChrome({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-screen bg-nexa-bg">
+    <div className="flex min-h-screen bg-nexa-bg [--dashboard-topbar-height:4rem]">
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col lg:ml-[264px]">
         <Topbar />
