@@ -69,9 +69,15 @@ export async function apiFetch<T>(
       // ignore
     }
     if (res.status === 401 && typeof window !== "undefined") {
-      clearAccessToken();
-      if (!window.location.pathname.startsWith("/login")) {
-        window.location.href = "/login";
+      // Only Identity 401s with a Bearer token mean the dashboard session is dead.
+      // Stays 401 (stale JWKS after Identity restart) must not wipe a valid login.
+      // Anonymous /auth/session checks also 401 — do not clear a token that was
+      // set while that request was in flight.
+      if (options.base === "identity" && token) {
+        clearAccessToken();
+        if (!window.location.pathname.startsWith("/login")) {
+          window.location.href = "/login";
+        }
       }
     }
     throw new ApiError(message, res.status);
