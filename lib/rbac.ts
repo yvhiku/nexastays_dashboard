@@ -1,7 +1,6 @@
 import type { AdminSession } from "@/lib/api/auth";
 import type { NavEntry } from "@/lib/nav";
-
-const AGENT_PATHS = ["/support", "/login"];
+import { AGENT_PATHS } from "@/lib/dashboard-paths";
 
 function sessionRoles(session: AdminSession | null | undefined): string[] {
   if (!session) return [];

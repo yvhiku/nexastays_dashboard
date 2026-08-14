@@ -51,6 +51,7 @@ export function TicketWorkspace({
   onClose,
   onChanged,
   onTicketPatched,
+  onTicketGone,
 }: {
   workspaceConfig: SupportWorkspaceConfig;
   ticket: Ticket | null;
@@ -62,6 +63,7 @@ export function TicketWorkspace({
   onClose: () => void;
   onChanged: () => Promise<void> | void;
   onTicketPatched?: (ticket: Ticket) => void;
+  onTicketGone?: (ticketId: string) => void;
 }) {
   const [detail, setDetail] = useState<TicketDetail | null>(null);
   const [messages, setMessages] = useState<TicketMessage[]>([]);
@@ -83,6 +85,14 @@ export function TicketWorkspace({
   const ticketIdRef = useRef<string | null>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const fetchOpsContext = workspaceConfig.canFetchOpsContext;
+
+  function ticketGone(err: unknown, ticketId: string) {
+    if (err instanceof ApiError && err.status === 404) {
+      onTicketGone?.(ticketId);
+      return true;
+    }
+    return false;
+  }
 
   useEffect(() => {
     const ticketId = ticket?.id ?? selectedId;
@@ -146,28 +156,32 @@ export function TicketWorkspace({
         .then((next) => {
           if (!cancelled) setMessages(next);
         })
-        .catch(() => {
+        .catch((err) => {
+          if (!cancelled && ticketGone(err, ticket.id)) return;
           /* keep last messages */
         });
       void fetchTicket(ticket.id)
         .then((next) => {
           if (!cancelled) setDetail(next);
         })
-        .catch(() => {
+        .catch((err) => {
+          if (!cancelled && ticketGone(err, ticket.id)) return;
           /* keep last detail */
         });
       void fetchTicketNotes(ticket.id)
         .then((next) => {
           if (!cancelled) setNotes(next);
         })
-        .catch(() => {
+        .catch((err) => {
+          if (!cancelled && ticketGone(err, ticket.id)) return;
           /* keep last notes */
         });
       void fetchTicketActivity(ticket.id, { limit: 50, offset: 0 })
         .then((next) => {
           if (!cancelled) setActivity(next.items);
         })
-        .catch(() => {
+        .catch((err) => {
+          if (!cancelled && ticketGone(err, ticket.id)) return;
           /* keep last activity */
         });
     };
@@ -193,8 +207,8 @@ export function TicketWorkspace({
     try {
       const next = await fetchTicket(ticket.id);
       setDetail(next);
-    } catch {
-      // keep last known detail
+    } catch (err) {
+      if (ticketGone(err, ticket.id)) return;
     }
   }
 
@@ -203,8 +217,8 @@ export function TicketWorkspace({
     try {
       const next = await fetchTicketActivity(ticket.id, { limit: 50, offset: 0 });
       setActivity(next.items);
-    } catch {
-      // keep last known activity
+    } catch (err) {
+      if (ticketGone(err, ticket.id)) return;
     }
   }
 
@@ -223,6 +237,7 @@ export function TicketWorkspace({
       await refreshDetail();
       await onChanged();
     } catch (err) {
+      if (ticketGone(err, ticket.id)) return;
       if (err instanceof ApiError && err.status === 409) {
         setStatusError("This support ticket is closed.");
         await refreshDetail();
@@ -248,6 +263,7 @@ export function TicketWorkspace({
       await onChanged();
       await refreshActivity();
     } catch (err) {
+      if (ticketGone(err, ticket.id)) return;
       setStatusError(err instanceof Error ? err.message : "Failed to update status");
     } finally {
       setStatusChanging(false);
@@ -264,6 +280,7 @@ export function TicketWorkspace({
       await onChanged();
       await refreshActivity();
     } catch (err) {
+      if (ticketGone(err, ticket.id)) return;
       setStatusError(err instanceof Error ? err.message : "Failed to update priority");
     }
   }
@@ -287,6 +304,7 @@ export function TicketWorkspace({
       await onChanged();
       await refreshActivity();
     } catch (err) {
+      if (ticketGone(err, ticket.id)) return;
       setStatusError(err instanceof Error ? err.message : "Failed to update assignment");
     } finally {
       setAssignBusy(false);
@@ -304,6 +322,7 @@ export function TicketWorkspace({
       setNotes(await fetchTicketNotes(ticket.id));
       await refreshActivity();
     } catch (err) {
+      if (ticketGone(err, ticket.id)) return;
       setStatusError(err instanceof Error ? err.message : "Failed to add note");
     } finally {
       setNoteSaving(false);

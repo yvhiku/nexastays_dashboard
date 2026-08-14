@@ -44,9 +44,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (next?.authenticated) {
         setSession(next);
         setToken(getAccessToken() || "cookie-session");
-      } else if (getAccessToken()) {
-        setToken(getAccessToken());
       } else {
+        clearAccessToken();
         setToken(null);
         setSession(null);
       }
@@ -100,6 +99,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       <div className="flex min-h-screen items-center justify-center text-sm text-nexa-ink-4">
         Loading…
       </div>
+    );
+  }
+
+  if (!session && pathname !== "/login") {
+    return (
+      <AuthContext.Provider value={value}>
+        <div className="flex min-h-screen items-center justify-center text-sm text-nexa-ink-4">
+          Redirecting…
+        </div>
+      </AuthContext.Provider>
     );
   }
 

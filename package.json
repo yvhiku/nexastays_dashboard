@@ -7,7 +7,7 @@
     "build": "next build --webpack",
     "start": "next start -p 3010",
     "lint": "eslint .",
-    "test:csp": "node --test lib/csp.test.cjs"
+    "test:csp": "node --test lib/csp.test.cjs lib/rbac.test.cjs"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",

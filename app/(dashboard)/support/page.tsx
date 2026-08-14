@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, Suspense } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/providers/auth-provider";
 import {
@@ -93,6 +93,8 @@ function SupportInboxPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [agents, setAgents] = useState<SupportAgentWithWorkload[]>([]);
+  const selectedIdRef = useRef(selectedId);
+  selectedIdRef.current = selectedId;
 
   const syncTicketUrl = useCallback(
     (ticketId: string | null) => {
@@ -157,14 +159,17 @@ function SupportInboxPage() {
     async (ticketId: string) => {
       try {
         const next = await fetchTicket(ticketId);
+        if (selectedIdRef.current !== ticketId) return;
         setSelectedTicket(next);
         setSelectedRefreshError(null);
       } catch (err) {
+        if (selectedIdRef.current !== ticketId) return;
         if (err instanceof ApiError && err.status === 404) {
           setSelectedId(null);
           setSelectedTicket(null);
           setSelectedRefreshError(null);
           syncTicketUrl(null);
+          void loadTickets(true);
           return;
         }
         setSelectedRefreshError(
@@ -172,7 +177,19 @@ function SupportInboxPage() {
         );
       }
     },
-    [syncTicketUrl],
+    [syncTicketUrl, loadTickets],
+  );
+
+  const handleTicketGone = useCallback(
+    (ticketId: string) => {
+      if (selectedIdRef.current !== ticketId) return;
+      setSelectedId(null);
+      setSelectedTicket(null);
+      setSelectedRefreshError(null);
+      syncTicketUrl(null);
+      void loadTickets(true);
+    },
+    [syncTicketUrl, loadTickets],
   );
 
   useEffect(() => {
@@ -293,6 +310,7 @@ function SupportInboxPage() {
       onTicketPatched={(ticket) => {
         setSelectedTicket(ticket);
       }}
+      onTicketGone={handleTicketGone}
       onPrevious={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
       onNext={() => setOffset(offset + PAGE_SIZE)}
       onFilterChange={(value) => {

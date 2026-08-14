@@ -18,6 +18,9 @@ import {
   Gauge,
   type LucideIcon,
 } from "lucide-react";
+import { navPathMatches } from "@/lib/dashboard-paths";
+
+export { navPathMatches };
 
 export interface NavItem {
   label: string;
@@ -141,11 +144,3 @@ export const navEntries: NavEntry[] = [
 export const navItems: NavItem[] = navEntries.flatMap((e) =>
   e.type === "link" ? [e.item] : e.group.items,
 );
-
-/** Exact match, except `/` only matches home. `/support` does not match `/support/operations`. */
-export function navPathMatches(href: string, pathname: string) {
-  if (href === "/") return pathname === "/";
-  if (pathname === href) return true;
-  if (!pathname.startsWith(`${href}/`)) return false;
-  return href !== "/support";
-}

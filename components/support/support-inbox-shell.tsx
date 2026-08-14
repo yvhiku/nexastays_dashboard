@@ -41,6 +41,7 @@ export function SupportInboxShell({
   onClose,
   onChanged,
   onTicketPatched,
+  onTicketGone,
   onPrevious,
   onNext,
   onFilterChange,
@@ -73,6 +74,7 @@ export function SupportInboxShell({
   onClose: () => void;
   onChanged: () => Promise<void> | void;
   onTicketPatched?: (ticket: Ticket) => void;
+  onTicketGone?: (ticketId: string) => void;
   onPrevious: () => void;
   onNext: () => void;
   onFilterChange: (value: SupportStatusFilter) => void;
@@ -225,6 +227,7 @@ export function SupportInboxShell({
             onClose={onClose}
             onChanged={onChanged}
             onTicketPatched={onTicketPatched}
+            onTicketGone={onTicketGone}
           />
         </div>
       </div>
