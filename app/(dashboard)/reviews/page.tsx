@@ -160,7 +160,10 @@ function ReviewsPageInner() {
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-nexa-ink-2">{s.label}</span>
                   <span className="text-nexa-ink-4">
-                    {((s.value / reviews.length) * 100).toFixed(0)}%
+                    {reviews.length
+                      ? ((s.value / reviews.length) * 100).toFixed(0)
+                      : "0"}
+                    %
                   </span>
                 </div>
                 <div className="mt-1">

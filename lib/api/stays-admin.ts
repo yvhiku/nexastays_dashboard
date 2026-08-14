@@ -454,14 +454,18 @@ export function mapHostApplication(row: HostProfileRow): HostApplication {
 
 export function mapReview(row: {
   id: string;
-  guest_user_id: string;
+  guest_user_id?: string | null;
+  guestUserId?: string | null;
+  guest_name?: string | null;
   rating: number;
   comment?: string | null;
-  created_at: string;
+  created_at?: string;
+  createdAt?: string;
   status?: string | null;
+  listing_id?: string | null;
   listing?: { title?: string; host_user_id?: string } | null;
 }): Review {
-  const rating = row.rating;
+  const rating = Number(row.rating) || 0;
   const raw = row.status?.toUpperCase();
   const status: Review["status"] =
     raw === "HIDDEN" || raw === "FLAGGED"
@@ -469,14 +473,15 @@ export function mapReview(row: {
       : raw === "REMOVED"
         ? "removed"
         : "published";
+  const guestId = row.guest_user_id ?? row.guestUserId ?? undefined;
   return {
     id: row.id,
-    guestName: row.guest_user_id.slice(0, 8),
-    listingTitle: row.listing?.title ?? "—",
+    guestName: row.guest_name?.trim() || (guestId ? guestId.slice(0, 8) : "—"),
+    listingTitle: row.listing?.title ?? (row.listing_id ? row.listing_id.slice(0, 8) : "—"),
     hostName: row.listing?.host_user_id?.slice(0, 8) ?? "—",
     rating,
     comment: row.comment ?? "",
-    createdAt: row.created_at,
+    createdAt: row.created_at ?? row.createdAt ?? "",
     status,
     sentiment: rating >= 4 ? "positive" : rating <= 2 ? "negative" : "neutral",
   };
@@ -1097,7 +1102,7 @@ export async function fetchReviews(options?: {
   const data = await apiFetch<Paginated<Parameters<typeof mapReview>[0]>>(
     `/admin/stays/reviews?${params.toString()}`,
   );
-  return data.items.map(mapReview);
+  return (data.items ?? []).map(mapReview);
 }
 
 export async function fetchAuditLogs(options?: {
