@@ -8,6 +8,7 @@ import { ticketContextHref, patchOperationalSignal } from "@/lib/api/stays-admin
 import { formatDateTime } from "@/lib/utils";
 import type {
   BookingDetail,
+  ListingDetail,
   OperationalSignal,
   SupportActivityItem,
   Ticket,
@@ -25,6 +26,7 @@ export function TicketDetails({
   ticket,
   detail,
   booking,
+  listingDetail,
   notes,
   noteDraft,
   noteSaving,
@@ -36,6 +38,7 @@ export function TicketDetails({
   ticket: Ticket;
   detail: TicketDetail | null;
   booking: BookingDetail | null;
+  listingDetail: ListingDetail | null;
   notes: TicketNote[];
   noteDraft: string;
   noteSaving: boolean;
@@ -46,64 +49,59 @@ export function TicketDetails({
 }) {
   const live = detail ?? ticket;
   const isLookup = ticket.id === "lookup";
-  const listingId = live.listingId ?? detail?.listing?.id;
-  const hostUserId = detail?.hostUserId ?? detail?.listing?.hostUserId;
+  const listingId = listingDetail?.id ?? live.listingId ?? detail?.listing?.id;
+  const hostUserId =
+    listingDetail?.hostId ?? detail?.hostUserId ?? detail?.listing?.hostUserId;
+  const listingTitle =
+    listingDetail?.title ??
+    detail?.listing?.title ??
+    detail?.listingTitle ??
+    (listingId ? listingId : "");
+  const listingCity = listingDetail?.city ?? detail?.listing?.city ?? "";
+  const hostName = listingDetail?.hostName ?? "";
   const reportId = live.reportId ?? detail?.report?.id;
   const safetyIssueId = live.safetyIssueId ?? detail?.safetyIssue?.id;
   const csat = live.csat ?? detail?.csat;
+  const hasListing = Boolean(listingId || listingTitle);
+  const hasBooking = Boolean(booking || live.bookingRef || live.bookingId);
 
   return (
     <div className="h-full overflow-y-auto p-4 text-sm">
-      <Section title="Customer">
+      <Section title="Reporter">
         <ContextBlock label="Customer" value={live.customerName} />
         {live.requesterEmail && <ContextBlock label="Email" value={live.requesterEmail} />}
         <ContextBlock label="Party" value={live.party} />
       </Section>
 
-      <Section title="Booking / listing">
-        {live.bookingRef && (
-          <ContextLink
-            label="Booking"
-            value={live.bookingRef}
-            href={ticketContextHref("booking", live.bookingId ?? live.bookingRef)}
-          />
-        )}
-        {booking && (
+      <Section title="Reported listing / host">
+        {hasListing ? (
           <>
             <ContextLink
               label="Listing"
-              value={booking.listingTitle}
+              value={listingTitle}
               href={ticketContextHref("listing", listingId)}
             />
-            <ContextBlock label="City" value={booking.city} />
+            <ContextBlock label="City" value={listingCity} />
+            {listingDetail?.address && (
+              <ContextBlock label="Address" value={listingDetail.address} />
+            )}
+            {listingDetail?.status && (
+              <ContextBlock label="Listing status" value={listingDetail.status} />
+            )}
             <ContextLink
               label="Host"
-              value={booking.hostName}
+              value={hostName || hostUserId || ""}
               href={ticketContextHref("host", hostUserId)}
             />
-            <ContextBlock label="Stay" value={`${booking.checkIn} → ${booking.checkOut}`} />
-            <ContextBlock label="Booking status" value={booking.rawStatus} />
-            <ContextBlock
-              label="Total paid"
-              value={`${booking.total} ${booking.currency ?? "MAD"}`}
-            />
-            {booking.guestFee != null && (
-              <ContextBlock label="Guest fee" value={String(booking.guestFee)} />
+            {listingDetail?.hostEmail && (
+              <ContextBlock label="Host email" value={listingDetail.hostEmail} />
             )}
-            {booking.hostFee != null && (
-              <ContextBlock label="Host fee" value={String(booking.hostFee)} />
-            )}
-            {booking.payoutAmount != null && (
-              <ContextBlock label="Host payout" value={String(booking.payoutAmount)} />
+            {listingDetail?.hostPhone && (
+              <ContextBlock label="Host phone" value={listingDetail.hostPhone} />
             )}
           </>
-        )}
-        {!booking && detail?.listing && (
-          <ContextLink
-            label="Listing"
-            value={detail.listing.title ?? detail.listing.id}
-            href={ticketContextHref("listing", listingId)}
-          />
+        ) : (
+          <p className="mt-2 text-xs text-nexa-ink-4">No listing linked</p>
         )}
         {detail?.report && (
           <ContextLink
@@ -133,10 +131,45 @@ export function TicketDetails({
             href={ticketContextHref("safety", safetyIssueId)}
           />
         )}
-        {!booking && (ticket.bookingId || ticket.bookingRef) && (
-          <p className="mt-3 text-xs text-nexa-ink-4">
-            Booking context could not be loaded for this reference.
-          </p>
+      </Section>
+
+      <Section title="Booking">
+        {hasBooking ? (
+          <>
+            {live.bookingRef && (
+              <ContextLink
+                label="Booking"
+                value={live.bookingRef}
+                href={ticketContextHref("booking", live.bookingId ?? live.bookingRef)}
+              />
+            )}
+            {booking && (
+              <>
+                <ContextBlock label="Stay" value={`${booking.checkIn} → ${booking.checkOut}`} />
+                <ContextBlock label="Booking status" value={booking.rawStatus} />
+                <ContextBlock
+                  label="Total paid"
+                  value={`${booking.total} ${booking.currency ?? "MAD"}`}
+                />
+                {booking.guestFee != null && (
+                  <ContextBlock label="Guest fee" value={String(booking.guestFee)} />
+                )}
+                {booking.hostFee != null && (
+                  <ContextBlock label="Host fee" value={String(booking.hostFee)} />
+                )}
+                {booking.payoutAmount != null && (
+                  <ContextBlock label="Host payout" value={String(booking.payoutAmount)} />
+                )}
+              </>
+            )}
+            {!booking && (ticket.bookingId || ticket.bookingRef) && (
+              <p className="mt-3 text-xs text-nexa-ink-4">
+                Booking context could not be loaded for this reference.
+              </p>
+            )}
+          </>
+        ) : (
+          <p className="mt-2 text-xs text-nexa-ink-4">No booking linked</p>
         )}
       </Section>
 

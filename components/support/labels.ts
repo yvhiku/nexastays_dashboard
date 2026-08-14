@@ -39,3 +39,14 @@ export function ticketSlaChip(ticket: Ticket): string | null {
   if (types.includes("SLA_ATTENTION")) return "At risk";
   return null;
 }
+
+export function statusMatchesFilter(
+  status: string,
+  filter: string,
+): boolean {
+  if (filter === "all") return true;
+  if (filter === "WAITING_FOR_CUSTOMER") {
+    return status === "WAITING_FOR_CUSTOMER" || status === "WAITING_FOR_HOST";
+  }
+  return status === filter;
+}

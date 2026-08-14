@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/providers/auth-provider";
-import { fetchTickets, type TicketsResult } from "@/lib/api/stays-admin";
+import { fetchTicket, fetchTickets, type TicketsResult } from "@/lib/api/stays-admin";
 import type { Ticket } from "@/lib/types";
 import {
   SupportInboxShell,
@@ -42,6 +42,8 @@ function SupportPageInner() {
   const [selectedId, setSelectedId] = useState<string | null>(
     () => searchParams.get("ticket") ?? null,
   );
+  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
+  const [selectedRefreshError, setSelectedRefreshError] = useState<string | null>(null);
   const [lookupTicket, setLookupTicket] = useState<Ticket | null>(null);
   const [lookupRef, setLookupRef] = useState("");
   const [data, setData] = useState<TicketsResult>({
@@ -54,30 +56,45 @@ function SupportPageInner() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const loadTickets = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const loadTickets = useCallback(
+    async (silent = false) => {
+      if (!silent) setLoading(true);
+      setError(null);
+      try {
+        const next = await fetchTickets({
+          limit: PAGE_SIZE,
+          offset,
+          status: statusQuery(filter),
+          search: query.trim() || undefined,
+          unassigned: assignmentScope === "unassigned" ? true : undefined,
+          assignedAdminId:
+            assignmentScope === "mine" && session?.userId ? session.userId : undefined,
+          slaState: slaScope === "all" ? undefined : slaScope,
+        });
+        setData(next);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unable to load support tickets.");
+      } finally {
+        if (!silent) setLoading(false);
+      }
+    },
+    [filter, offset, query, assignmentScope, slaScope, session?.userId],
+  );
+
+  const refreshSelectedTicket = useCallback(async (ticketId: string) => {
     try {
-      const next = await fetchTickets({
-        limit: PAGE_SIZE,
-        offset,
-        status: statusQuery(filter),
-        search: query.trim() || undefined,
-        unassigned: assignmentScope === "unassigned" ? true : undefined,
-        assignedAdminId:
-          assignmentScope === "mine" && session?.userId ? session.userId : undefined,
-        slaState: slaScope === "all" ? undefined : slaScope,
-      });
-      setData(next);
+      const next = await fetchTicket(ticketId);
+      setSelectedTicket(next);
+      setSelectedRefreshError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load support tickets.");
-    } finally {
-      setLoading(false);
+      setSelectedRefreshError(
+        err instanceof Error ? err.message : "Unable to refresh this ticket.",
+      );
     }
-  }, [filter, offset, query, assignmentScope, slaScope, session?.userId]);
+  }, []);
 
   useEffect(() => {
-    void loadTickets();
+    void loadTickets(false);
   }, [loadTickets]);
 
   useEffect(() => {
@@ -97,17 +114,23 @@ function SupportPageInner() {
 
   useEffect(() => {
     if (!selectedId || selectedId === "lookup") return;
+    const fromQueue = data.items.find((t) => t.id === selectedId);
+    if (fromQueue) setSelectedTicket(fromQueue);
+  }, [data.items, selectedId]);
+
+  useEffect(() => {
+    if (!selectedId || selectedId === "lookup") return;
+    void refreshSelectedTicket(selectedId);
     const interval = setInterval(() => {
-      void loadTickets();
+      void refreshSelectedTicket(selectedId);
+      void loadTickets(true);
     }, 8000);
     return () => clearInterval(interval);
-  }, [selectedId, loadTickets]);
+  }, [selectedId, loadTickets, refreshSelectedTicket]);
 
   const tickets = data.items;
   const selected =
-    selectedId === "lookup"
-      ? lookupTicket
-      : (tickets.find((t) => t.id === selectedId) ?? null);
+    selectedId === "lookup" ? lookupTicket : selectedId ? selectedTicket : null;
 
   const pageLabel = useMemo(() => {
     if (data.total === 0) return "0 tickets";
@@ -116,6 +139,13 @@ function SupportPageInner() {
     return `${from}–${to} of ${data.total}`;
   }, [data.offset, data.total, tickets.length]);
 
+  function clearSelection() {
+    setSelectedId(null);
+    setSelectedTicket(null);
+    setLookupTicket(null);
+    setSelectedRefreshError(null);
+  }
+
   return (
     <SupportInboxShell
       tickets={tickets}
@@ -123,6 +153,7 @@ function SupportPageInner() {
       selectedId={selectedId}
       loading={loading}
       error={error}
+      selectedRefreshError={selectedRefreshError}
       pageLabel={pageLabel}
       hasPrevious={offset > 0}
       hasNext={data.hasMore}
@@ -132,16 +163,23 @@ function SupportPageInner() {
       searchInput={searchInput}
       lookupRef={lookupRef}
       ticketCount={data.total}
-      onRetry={() => void loadTickets()}
+      onRetry={() => void loadTickets(false)}
+      onRetrySelected={() => {
+        if (selectedId && selectedId !== "lookup") void refreshSelectedTicket(selectedId);
+      }}
       onSelect={(ticket) => {
         setLookupTicket(null);
         setSelectedId(ticket.id);
+        setSelectedTicket(ticket);
+        setSelectedRefreshError(null);
       }}
-      onClose={() => {
-        setSelectedId(null);
-        setLookupTicket(null);
+      onClose={clearSelection}
+      onChanged={async () => {
+        await loadTickets(true);
+        if (selectedId && selectedId !== "lookup") {
+          await refreshSelectedTicket(selectedId);
+        }
       }}
-      onChanged={loadTickets}
       onPrevious={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
       onNext={() => setOffset(offset + PAGE_SIZE)}
       onFilterChange={(value) => {
@@ -159,7 +197,7 @@ function SupportPageInner() {
       onSearchChange={setSearchInput}
       onLookupRefChange={setLookupRef}
       onLookup={() => {
-        setLookupTicket({
+        const lookup: Ticket = {
           id: "lookup",
           ticketNumber: "Lookup",
           subject: "Booking context",
@@ -172,8 +210,11 @@ function SupportPageInner() {
           updatedAt: "",
           bookingId: lookupRef.trim(),
           bookingRef: lookupRef.trim(),
-        });
+        };
+        setLookupTicket(lookup);
         setSelectedId("lookup");
+        setSelectedTicket(null);
+        setSelectedRefreshError(null);
       }}
     />
   );

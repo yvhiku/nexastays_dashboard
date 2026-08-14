@@ -2,11 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { useAuth } from "@/components/providers/auth-provider";
 import {
   createTicketNote,
   fetchBookingDetail,
   fetchCannedReplies,
+  fetchListingDetail,
   fetchTicket,
   fetchTicketActivity,
   fetchTicketMessages,
@@ -18,6 +20,7 @@ import { ApiError } from "@/lib/api/client";
 import type {
   BookingDetail,
   CannedReply,
+  ListingDetail,
   OperationalSignal,
   SupportActivityItem,
   Ticket,
@@ -32,13 +35,22 @@ import { TicketChat } from "./ticket-chat";
 import { TicketComposer } from "./ticket-composer";
 import { TicketDetails } from "./ticket-details";
 import { TicketDetailsSheet } from "./ticket-details-sheet";
+import { statusMatchesFilter } from "./labels";
 
 export function TicketWorkspace({
   ticket,
+  selectedId,
+  filter,
+  selectedRefreshError,
+  onRetrySelected,
   onClose,
   onChanged,
 }: {
   ticket: Ticket | null;
+  selectedId: string | null;
+  filter: string;
+  selectedRefreshError: string | null;
+  onRetrySelected: () => void;
   onClose: () => void;
   onChanged: () => Promise<void> | void;
 }) {
@@ -51,6 +63,7 @@ export function TicketWorkspace({
   const [noteDraft, setNoteDraft] = useState("");
   const [noteSaving, setNoteSaving] = useState(false);
   const [booking, setBooking] = useState<BookingDetail | null>(null);
+  const [listingDetail, setListingDetail] = useState<ListingDetail | null>(null);
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
   const [statusChanging, setStatusChanging] = useState(false);
@@ -60,7 +73,7 @@ export function TicketWorkspace({
   const ticketIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    const ticketId = ticket?.id ?? null;
+    const ticketId = ticket?.id ?? selectedId;
     if (ticketIdRef.current !== ticketId) {
       setReply("");
       setNoteDraft("");
@@ -69,20 +82,43 @@ export function TicketWorkspace({
       setNotes([]);
       setActivity([]);
       setBooking(null);
+      setListingDetail(null);
       setDetail(null);
       setDetailsOpen(false);
       ticketIdRef.current = ticketId;
     }
-    if (!ticket) return;
+    if (!ticket || ticket.id === "lookup") {
+      const bookingKey = ticket?.bookingId || ticket?.bookingRef;
+      if (bookingKey) {
+        void fetchBookingDetail(bookingKey)
+          .then(setBooking)
+          .catch(() => setBooking(null));
+      }
+      return;
+    }
+
+    let cancelled = false;
+    const listingId = ticket.listingId;
+    if (listingId) {
+      void fetchListingDetail(listingId)
+        .then((next) => {
+          if (!cancelled) setListingDetail(next);
+        })
+        .catch(() => {
+          /* keep last listing detail */
+        });
+    }
     const bookingKey = ticket.bookingId || ticket.bookingRef;
     if (bookingKey) {
       void fetchBookingDetail(bookingKey)
-        .then(setBooking)
-        .catch(() => setBooking(null));
+        .then((next) => {
+          if (!cancelled) setBooking(next);
+        })
+        .catch(() => {
+          /* keep last booking */
+        });
     }
-    if (ticket.id === "lookup") return;
 
-    let cancelled = false;
     void fetchCannedReplies()
       .then((rows) => {
         if (!cancelled) setCanned(rows);
@@ -96,28 +132,28 @@ export function TicketWorkspace({
           if (!cancelled) setMessages(next);
         })
         .catch(() => {
-          if (!cancelled) setMessages([]);
+          /* keep last messages */
         });
       void fetchTicket(ticket.id)
         .then((next) => {
           if (!cancelled) setDetail(next);
         })
         .catch(() => {
-          if (!cancelled) setDetail(null);
+          /* keep last detail */
         });
       void fetchTicketNotes(ticket.id)
         .then((next) => {
           if (!cancelled) setNotes(next);
         })
         .catch(() => {
-          if (!cancelled) setNotes([]);
+          /* keep last notes */
         });
       void fetchTicketActivity(ticket.id, { limit: 50, offset: 0 })
         .then((next) => {
           if (!cancelled) setActivity(next.items);
         })
         .catch(() => {
-          if (!cancelled) setActivity([]);
+          /* keep last activity */
         });
     };
     load();
@@ -128,7 +164,7 @@ export function TicketWorkspace({
     };
     // Intentionally keyed to ticket identity, not object identity after list reload.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ticket?.id, ticket?.bookingId, ticket?.bookingRef]);
+  }, [ticket?.id, ticket?.bookingId, ticket?.bookingRef, ticket?.listingId, selectedId]);
 
   async function refreshDetail() {
     if (!ticket || ticket.id === "lookup") return;
@@ -161,6 +197,7 @@ export function TicketWorkspace({
       const next = await fetchTicketMessages(ticket.id);
       setMessages(next);
       setPinToLatest((n) => n + 1);
+      await refreshDetail();
       await onChanged();
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
@@ -253,7 +290,18 @@ export function TicketWorkspace({
       <div className="flex h-full items-center justify-center bg-white">
         <Card className="border-0 shadow-none">
           <CardContent className="py-12 text-center text-sm text-nexa-ink-4">
-            Select a ticket or look up a booking to see context.
+            {selectedRefreshError ? (
+              <div className="space-y-3">
+                <p>Could not load this ticket. {selectedRefreshError}</p>
+                <Button size="sm" variant="outline" onClick={onRetrySelected}>
+                  Retry
+                </Button>
+              </div>
+            ) : selectedId ? (
+              "Loading ticket…"
+            ) : (
+              "Select a ticket or look up a booking to see context."
+            )}
           </CardContent>
         </Card>
       </div>
@@ -264,11 +312,16 @@ export function TicketWorkspace({
   const isClosed = live.status === "CLOSED";
   const composerDisabled =
     ticket.id === "lookup" || isClosed || statusChanging || sending;
+  const filterMismatchNote =
+    ticket.id !== "lookup" && !statusMatchesFilter(live.status, filter)
+      ? `This ticket is now ${live.status.replace(/_/g, " ").toLowerCase()}`
+      : null;
   const details = (
     <TicketDetails
       ticket={ticket}
       detail={detail}
       booking={booking}
+      listingDetail={listingDetail}
       notes={notes}
       noteDraft={noteDraft}
       noteSaving={noteSaving}
@@ -296,6 +349,7 @@ export function TicketWorkspace({
         statusChanging={statusChanging}
         showBack
         showDetailsButton
+        filterMismatchNote={filterMismatchNote}
         onBack={onClose}
         onDetails={() => setDetailsOpen(true)}
         onStatusChange={(status) => void changeStatus(status)}
@@ -303,6 +357,14 @@ export function TicketWorkspace({
         onAssignSelf={() => void assignSelf()}
         onUnassign={() => void unassign()}
       />
+      {selectedRefreshError && (
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-nexa-danger/20 bg-nexa-danger-soft px-3 py-1.5 text-xs text-nexa-danger">
+          <p>Could not refresh ticket. {selectedRefreshError}</p>
+          <Button size="sm" variant="outline" onClick={onRetrySelected}>
+            Retry
+          </Button>
+        </div>
+      )}
       {statusError && (
         <p className="shrink-0 border-b border-nexa-danger/20 bg-nexa-danger-soft px-3 py-1.5 text-xs text-nexa-danger">
           {statusError}

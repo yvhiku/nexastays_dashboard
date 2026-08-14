@@ -22,6 +22,7 @@ export function TicketHeader({
   statusChanging,
   showBack,
   showDetailsButton,
+  filterMismatchNote,
   onBack,
   onDetails,
   onStatusChange,
@@ -34,6 +35,7 @@ export function TicketHeader({
   statusChanging: boolean;
   showBack: boolean;
   showDetailsButton: boolean;
+  filterMismatchNote?: string | null;
   onBack: () => void;
   onDetails: () => void;
   onStatusChange: (status: TicketStatus) => void;
@@ -109,6 +111,9 @@ export function TicketHeader({
             </Button>
           )}
         </div>
+      )}
+      {filterMismatchNote && (
+        <p className="mt-2 text-xs text-nexa-ink-3">{filterMismatchNote}</p>
       )}
     </div>
   );

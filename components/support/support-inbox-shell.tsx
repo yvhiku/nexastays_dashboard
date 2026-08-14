@@ -17,6 +17,7 @@ export function SupportInboxShell({
   selectedId,
   loading,
   error,
+  selectedRefreshError,
   pageLabel,
   hasPrevious,
   hasNext,
@@ -27,6 +28,7 @@ export function SupportInboxShell({
   lookupRef,
   ticketCount,
   onRetry,
+  onRetrySelected,
   onSelect,
   onClose,
   onChanged,
@@ -44,6 +46,7 @@ export function SupportInboxShell({
   selectedId: string | null;
   loading: boolean;
   error: string | null;
+  selectedRefreshError: string | null;
   pageLabel: string;
   hasPrevious: boolean;
   hasNext: boolean;
@@ -54,6 +57,7 @@ export function SupportInboxShell({
   lookupRef: string;
   ticketCount: number;
   onRetry: () => void;
+  onRetrySelected: () => void;
   onSelect: (ticket: Ticket) => void;
   onClose: () => void;
   onChanged: () => Promise<void> | void;
@@ -66,7 +70,7 @@ export function SupportInboxShell({
   onLookupRefChange: (value: string) => void;
   onLookup: () => void;
 }) {
-  const hasSelection = Boolean(selected);
+  const hasSelection = Boolean(selectedId);
 
   return (
     <div className="-mx-4 -my-6 flex h-[calc(100dvh-var(--dashboard-topbar-height))] flex-col overflow-hidden sm:-mx-6 lg:-mx-8">
@@ -93,14 +97,14 @@ export function SupportInboxShell({
               { value: "ESCALATED", label: "Escalated" },
               { value: "RESOLVED", label: "Resolved" },
               { value: "CLOSED", label: "Closed" },
-              { value: "all", label: "All", count: ticketCount },
+              { value: "all", label: "All statuses", count: ticketCount },
             ]}
           />
           <FilterTabs<AssignmentScope>
             value={assignmentScope}
             onChange={onAssignmentChange}
             options={[
-              { value: "all", label: "All" },
+              { value: "all", label: "All assignees" },
               { value: "mine", label: "My" },
               { value: "unassigned", label: "Unassigned" },
             ]}
@@ -163,7 +167,15 @@ export function SupportInboxShell({
             hasSelection ? "flex flex-col" : "hidden lg:flex lg:flex-col",
           )}
         >
-          <TicketWorkspace ticket={selected} onClose={onClose} onChanged={onChanged} />
+          <TicketWorkspace
+            ticket={selected}
+            selectedId={selectedId}
+            filter={filter}
+            selectedRefreshError={selectedRefreshError}
+            onRetrySelected={onRetrySelected}
+            onClose={onClose}
+            onChanged={onChanged}
+          />
         </div>
       </div>
     </div>
