@@ -375,15 +375,32 @@ export interface TicketLinkedSafetyIssue {
   reporterUserId?: string;
 }
 
+export interface SupportPartyContact {
+  id: string;
+  name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+}
+
 export interface TicketDetail extends Ticket {
   conversationId?: string;
   listingTitle?: string;
   hostUserId?: string;
+  host?: SupportPartyContact | null;
+  guest?: SupportPartyContact | null;
+  reporter?: SupportPartyContact | null;
   listing?: {
     id: string;
     title?: string;
     hostUserId?: string;
     city?: string;
+    address?: string | null;
+    host?: SupportPartyContact;
+    checkInContact?: {
+      name?: string | null;
+      phone?: string | null;
+      role?: string | null;
+    } | null;
   } | null;
   report?: TicketLinkedReport | null;
   safetyIssue?: TicketLinkedSafetyIssue | null;

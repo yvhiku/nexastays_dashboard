@@ -55,15 +55,30 @@ export function TicketDetails({
   const live = detail ?? ticket;
   const isLookup = ticket.id === "lookup";
   const listingId = listingDetail?.id ?? live.listingId ?? detail?.listing?.id;
-  const hostUserId =
-    listingDetail?.hostId ?? detail?.hostUserId ?? detail?.listing?.hostUserId;
+  const host = detail?.host ?? detail?.listing?.host;
+  const hostUserId = host?.id ?? listingDetail?.hostId ?? detail?.hostUserId ?? detail?.listing?.hostUserId;
   const listingTitle =
     listingDetail?.title ??
     detail?.listing?.title ??
     detail?.listingTitle ??
     "";
   const listingCity = listingDetail?.city ?? detail?.listing?.city ?? "";
-  const hostName = listingDetail?.hostName ?? "";
+  const listingAddress = listingDetail?.address ?? detail?.listing?.address ?? "";
+  const hostName =
+    (listingDetail?.hostName && listingDetail.hostName !== listingDetail.hostId?.slice(0, 8)
+      ? listingDetail.hostName
+      : "") ||
+    host?.name ||
+    "";
+  const hostEmail = listingDetail?.hostEmail && listingDetail.hostEmail !== "—"
+    ? listingDetail.hostEmail
+    : host?.email || "";
+  const hostPhone = listingDetail?.hostPhone && listingDetail.hostPhone !== "—"
+    ? listingDetail.hostPhone
+    : host?.phone || "";
+  const guest = detail?.guest;
+  const reporter = detail?.reporter;
+  const checkIn = detail?.listing?.checkInContact;
   const reportId = live.reportId ?? detail?.report?.id;
   const safetyIssueId = live.safetyIssueId ?? detail?.safetyIssue?.id;
   const csat = live.csat ?? detail?.csat;
@@ -75,8 +90,11 @@ export function TicketDetails({
   return (
     <div className="h-full overflow-y-auto p-4 text-sm">
       <Section title="Reporter">
-        <ContextBlock label="Customer" value={live.customerName} />
-        {live.requesterEmail && <ContextBlock label="Email" value={live.requesterEmail} />}
+        <ContextBlock label="Customer" value={reporter?.name || live.customerName} />
+        {(reporter?.email || live.requesterEmail) && (
+          <ContextMailto label="Email" value={reporter?.email || live.requesterEmail || ""} />
+        )}
+        {reporter?.phone && <ContextTel label="Phone" value={reporter.phone} />}
         <ContextBlock label="Party" value={live.party} />
       </Section>
 
@@ -89,23 +107,20 @@ export function TicketDetails({
               href={opsHref("listing", listingId)}
             />
             <ContextBlock label="City" value={listingCity} />
-            {listingDetail?.address && (
-              <ContextBlock label="Address" value={listingDetail.address} />
-            )}
+            {listingAddress && <ContextBlock label="Address" value={listingAddress} />}
             {listingDetail?.status && (
               <ContextBlock label="Listing status" value={listingDetail.status} />
             )}
             <ContextLink
               label="Host"
-              value={hostName || hostUserId || ""}
+              value={hostName || "Unknown host"}
               href={opsHref("host", hostUserId)}
             />
-            {listingDetail?.hostEmail && (
-              <ContextBlock label="Host email" value={listingDetail.hostEmail} />
-            )}
-            {listingDetail?.hostPhone && (
-              <ContextBlock label="Host phone" value={listingDetail.hostPhone} />
-            )}
+            {hostEmail && <ContextMailto label="Host email" value={hostEmail} />}
+            {hostPhone && <ContextTel label="Host phone" value={hostPhone} />}
+            {checkIn?.name && <ContextBlock label="Check-in contact" value={checkIn.name} />}
+            {checkIn?.phone && <ContextTel label="Check-in phone" value={checkIn.phone} />}
+            {checkIn?.role && <ContextBlock label="Check-in role" value={checkIn.role} />}
           </>
         ) : (
           <p className="mt-2 text-xs text-nexa-ink-4">No listing linked</p>
@@ -139,6 +154,14 @@ export function TicketDetails({
           />
         )}
       </Section>
+
+      {guest && guest.id !== hostUserId && (guest.name || guest.email || guest.phone) && (
+        <Section title="Guest">
+          {guest.name && <ContextBlock label="Name" value={guest.name} />}
+          {guest.email && <ContextMailto label="Email" value={guest.email} />}
+          {guest.phone && <ContextTel label="Phone" value={guest.phone} />}
+        </Section>
+      )}
 
       <Section title="Booking">
         {hasBooking ? (
@@ -390,6 +413,30 @@ function ContextBlock({ label, value }: { label: string; value: string }) {
     <div className="mt-3">
       <p className="text-[11px] uppercase text-nexa-ink-4">{label}</p>
       <p className="font-medium text-nexa-ink">{value}</p>
+    </div>
+  );
+}
+
+function ContextMailto({ label, value }: { label: string; value: string }) {
+  if (!value || value === "—") return null;
+  return (
+    <div className="mt-3">
+      <p className="text-[11px] uppercase text-nexa-ink-4">{label}</p>
+      <a href={`mailto:${value}`} className="font-medium text-nexa-primary hover:underline">
+        {value}
+      </a>
+    </div>
+  );
+}
+
+function ContextTel({ label, value }: { label: string; value: string }) {
+  if (!value || value === "—") return null;
+  return (
+    <div className="mt-3">
+      <p className="text-[11px] uppercase text-nexa-ink-4">{label}</p>
+      <a href={`tel:${value}`} className="font-medium text-nexa-primary hover:underline">
+        {value}
+      </a>
     </div>
   );
 }

@@ -26,6 +26,7 @@ import type {
   RelatedSupportTicket,
   SupportOperationsOverview,
   SupportAttentionResult,
+  SupportPartyContact,
 } from "../types";
 import { apiConfig } from "./config";
 import { apiFetch, getAccessToken, isNotImplemented } from "./client";
@@ -1372,6 +1373,17 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
 }
 
+function mapSupportContact(value: unknown): SupportPartyContact | null {
+  const row = asRecord(value);
+  if (!row?.id) return null;
+  return {
+    id: String(row.id),
+    name: (row.name as string | null | undefined) ?? null,
+    email: (row.email as string | null | undefined) ?? null,
+    phone: (row.phone as string | null | undefined) ?? null,
+  };
+}
+
 function mapOperationalSignal(row: Record<string, unknown>): OperationalSignal {
   const reason = asRecord(row.reason) ?? {};
   return {
@@ -1410,6 +1422,12 @@ export async function fetchTicket(ticketId: string): Promise<TicketDetail> {
   const listing = asRecord(row.listing);
   const report = asRecord(row.report);
   const safety = asRecord(row.safetyIssue ?? row.safety_issue);
+  const host = mapSupportContact(row.host) ?? mapSupportContact(listing?.host);
+  const guest = mapSupportContact(row.guest);
+  const reporter = mapSupportContact(row.reporter);
+  const checkIn = asRecord(
+    listing?.check_in_contact ?? listing?.checkInContact,
+  );
   const csatRow = asRecord(row.csat);
   const csat: TicketCsat | null | undefined = csatRow
     ? {
@@ -1424,13 +1442,27 @@ export async function fetchTicket(ticketId: string): Promise<TicketDetail> {
     ...mapTicket(row),
     conversationId: (row.conversationId ?? row.conversation_id) as string | undefined,
     listingTitle: (listing?.title ?? row.listing_title) as string | undefined,
-    hostUserId: (listing?.hostUserId ?? listing?.host_user_id) as string | undefined,
+    hostUserId: (host?.id ?? listing?.hostUserId ?? listing?.host_user_id) as
+      | string
+      | undefined,
+    host,
+    guest,
+    reporter,
     listing: listing
       ? {
           id: String(listing.id ?? ""),
           title: listing.title as string | undefined,
           hostUserId: (listing.hostUserId ?? listing.host_user_id) as string | undefined,
           city: listing.city as string | undefined,
+          address: (listing.address as string | null | undefined) ?? null,
+          host: host ?? undefined,
+          checkInContact: checkIn
+            ? {
+                name: (checkIn.name as string | null | undefined) ?? null,
+                phone: (checkIn.phone as string | null | undefined) ?? null,
+                role: (checkIn.role as string | null | undefined) ?? null,
+              }
+            : null,
         }
       : null,
     report: report
