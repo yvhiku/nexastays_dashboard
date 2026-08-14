@@ -33,6 +33,12 @@ export type SupportWorkspaceConfig = {
   canChangeStatus: boolean;
   canCreateNotes: boolean;
   canViewSignals: boolean;
+  canViewOperations: boolean;
+  canViewQueueHealth: boolean;
+  canViewAttentionQueue: boolean;
+  canViewAgentMonitoring: boolean;
+  canViewSupportAnalytics: boolean;
+  canViewGlobalSignals: boolean;
   statusFilterOptions: SupportStatusFilterOption[];
   assignmentFilterOptions: { value: AssignmentScope; label: string }[];
   queueTitle: string;
@@ -90,6 +96,12 @@ export function getSupportWorkspaceConfig(
       canChangeStatus: true,
       canCreateNotes: true,
       canViewSignals: true,
+      canViewOperations: false,
+      canViewQueueHealth: false,
+      canViewAttentionQueue: false,
+      canViewAgentMonitoring: false,
+      canViewSupportAnalytics: false,
+      canViewGlobalSignals: false,
       statusFilterOptions: AGENT_STATUS_FILTERS,
       assignmentFilterOptions: [],
       queueTitle: "My Tickets",
@@ -120,6 +132,12 @@ export function getSupportWorkspaceConfig(
     canChangeStatus: true,
     canCreateNotes: true,
     canViewSignals: true,
+    canViewOperations: true,
+    canViewQueueHealth: true,
+    canViewAttentionQueue: true,
+    canViewAgentMonitoring: true,
+    canViewSupportAnalytics: true,
+    canViewGlobalSignals: true,
     statusFilterOptions: ADMIN_STATUS_FILTERS,
     assignmentFilterOptions: ADMIN_ASSIGNMENT_FILTERS,
     queueTitle: "Support",

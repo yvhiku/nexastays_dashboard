@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Loader2, Search } from "lucide-react";
-import { navItems } from "@/lib/nav";
+import { navItems, navPathMatches } from "@/lib/nav";
 import { useAuth } from "@/components/providers/auth-provider";
 import { OperationsInbox } from "@/components/layout/operations-inbox";
 import { globalSearch, type SearchHit } from "@/lib/api/global-search";
@@ -31,9 +31,9 @@ export function Topbar() {
   const boxRef = useRef<HTMLDivElement>(null);
 
   const current =
-    navItems.find((n) =>
-      n.href === "/" ? pathname === "/" : pathname.startsWith(n.href),
-    )?.label ?? "Overview";
+    [...navItems]
+      .filter((n) => navPathMatches(n.href, pathname))
+      .sort((a, b) => b.href.length - a.href.length)[0]?.label ?? "Overview";
 
   useEffect(() => {
     function onDocClick(e: MouseEvent) {

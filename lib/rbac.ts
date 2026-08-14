@@ -1,7 +1,7 @@
 import type { AdminSession } from "@/lib/api/auth";
 import type { NavEntry } from "@/lib/nav";
 
-const AGENT_PATHS = ["/support", "/support/profile", "/login"];
+const AGENT_PATHS = ["/support", "/login"];
 
 function sessionRoles(session: AdminSession | null | undefined): string[] {
   if (!session) return [];
@@ -27,9 +27,7 @@ export function canAccessDashboardPath(
   if (!session) return pathname === "/login";
   if (isSuperAdmin(session)) return true;
   if (!isSupportAgent(session)) return true;
-  return AGENT_PATHS.some(
-    (path) => pathname === path || pathname.startsWith(`${path}/`),
-  );
+  return AGENT_PATHS.some((path) => pathname === path);
 }
 
 export function getDefaultDashboardRoute(

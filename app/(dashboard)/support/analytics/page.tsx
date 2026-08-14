@@ -1,21 +1,29 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
-import { ErrorState } from "@/components/ui/states";
+import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
 import { MetricCard } from "@/components/dashboard/metric-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { BarChart } from "@/components/charts/charts";
+import { BarChart, AreaChart } from "@/components/charts/charts";
 import { ClientOnly } from "@/components/client-only";
+import { FilterTabs } from "@/components/ui/toolbar";
 import { fetchSupportAnalytics } from "@/lib/api/stays-admin";
 import type { SupportAnalytics } from "@/lib/types";
 import { formatNumber } from "@/lib/utils";
 import { Clock, LifeBuoy, Star, ShieldAlert } from "lucide-react";
+import { useAuth } from "@/components/providers/auth-provider";
+import { getSupportWorkspaceConfig } from "@/lib/support-workspace";
 
-function startOfMonthIso() {
+type RangePreset = "7d" | "30d" | "custom";
+
+function startOfUtcDay(daysAgo: number) {
   const d = new Date();
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString();
+  return new Date(
+    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - daysAgo),
+  ).toISOString();
 }
 
 function tomorrowExclusiveIso() {
@@ -53,10 +61,20 @@ const EMPTY: SupportAnalytics = {
   },
   categories: [],
   priorities: [],
+  statusDistribution: [],
+  assignment: { assigned: 0, unassigned: 0 },
+  volume: [],
 };
 
 export default function SupportAnalyticsPage() {
-  const [from, setFrom] = useState(startOfMonthIso);
+  const router = useRouter();
+  const { session } = useAuth();
+  const workspaceConfig = useMemo(
+    () => getSupportWorkspaceConfig(session),
+    [session],
+  );
+  const [preset, setPreset] = useState<RangePreset>("30d");
+  const [from, setFrom] = useState(() => startOfUtcDay(30));
   const [to, setTo] = useState(tomorrowExclusiveIso);
   const [data, setData] = useState<SupportAnalytics>(EMPTY);
   const [loading, setLoading] = useState(true);
@@ -76,9 +94,40 @@ export default function SupportAnalyticsPage() {
   }, [from, to]);
 
   useEffect(() => {
+    if (!workspaceConfig.canViewSupportAnalytics) {
+      router.replace("/support");
+      return;
+    }
     void load();
-  }, [load]);
+  }, [workspaceConfig.canViewSupportAnalytics, load, router]);
 
+  function applyPreset(next: RangePreset) {
+    setPreset(next);
+    if (next === "7d") {
+      setFrom(startOfUtcDay(7));
+      setTo(tomorrowExclusiveIso());
+    } else if (next === "30d") {
+      setFrom(startOfUtcDay(30));
+      setTo(tomorrowExclusiveIso());
+    }
+  }
+
+  const createdSeries = useMemo(
+    () => data.volume.map((row) => ({ label: row.date.slice(5), value: row.created })),
+    [data.volume],
+  );
+  const closedSeries = useMemo(
+    () => data.volume.map((row) => ({ label: row.date.slice(5), value: row.closed })),
+    [data.volume],
+  );
+  const statusSeries = useMemo(
+    () =>
+      data.statusDistribution.map((row) => ({
+        label: row.status.replace(/_/g, " "),
+        value: row.count,
+      })),
+    [data.statusDistribution],
+  );
   const categorySeries = useMemo(
     () => data.categories.map((c) => ({ label: c.category, value: c.count })),
     [data.categories],
@@ -87,149 +136,227 @@ export default function SupportAnalyticsPage() {
     () => data.priorities.map((p) => ({ label: p.priority, value: p.count })),
     [data.priorities],
   );
+  const emptyRange =
+    !loading &&
+    !error &&
+    data.tickets.created === 0 &&
+    data.tickets.closed === 0 &&
+    data.volume.every((row) => row.created === 0 && row.closed === 0);
+
+  if (!workspaceConfig.canViewSupportAnalytics) {
+    return <LoadingState label="Redirecting…" />;
+  }
 
   return (
     <div className="space-y-8">
       <PageHeader
         title="Support analytics"
-        description="Tickets created in the selected range. Metrics use first response, first resolution, and close times."
+        description="Historical tickets in the selected range. Separate from the current operations snapshot."
       />
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-        <div>
-          <label className="text-xs font-semibold uppercase text-nexa-ink-4">From</label>
-          <input
-            type="datetime-local"
-            className="mt-1 h-9 rounded-md border border-nexa-line px-3 text-sm"
-            value={from.slice(0, 16)}
-            onChange={(e) => setFrom(new Date(e.target.value).toISOString())}
-          />
-        </div>
-        <div>
-          <label className="text-xs font-semibold uppercase text-nexa-ink-4">
-            To (exclusive)
-          </label>
-          <input
-            type="datetime-local"
-            className="mt-1 h-9 rounded-md border border-nexa-line px-3 text-sm"
-            value={to.slice(0, 16)}
-            onChange={(e) => setTo(new Date(e.target.value).toISOString())}
-          />
-        </div>
-        <Button size="sm" onClick={() => void load()} disabled={loading}>
+      <div className="flex flex-col gap-3">
+        <FilterTabs<RangePreset>
+          value={preset}
+          onChange={applyPreset}
+          options={[
+            { value: "7d", label: "Last 7 days" },
+            { value: "30d", label: "Last 30 days" },
+            { value: "custom", label: "Custom range" },
+          ]}
+        />
+        {preset === "custom" && (
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+            <div>
+              <label className="text-xs font-semibold uppercase text-nexa-ink-4">From</label>
+              <input
+                type="datetime-local"
+                className="mt-1 h-9 rounded-md border border-nexa-line px-3 text-sm"
+                value={from.slice(0, 16)}
+                onChange={(e) => setFrom(new Date(e.target.value).toISOString())}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold uppercase text-nexa-ink-4">
+                To (exclusive)
+              </label>
+              <input
+                type="datetime-local"
+                className="mt-1 h-9 rounded-md border border-nexa-line px-3 text-sm"
+                value={to.slice(0, 16)}
+                onChange={(e) => setTo(new Date(e.target.value).toISOString())}
+              />
+            </div>
+          </div>
+        )}
+        <Button size="sm" className="w-fit" onClick={() => void load()} disabled={loading}>
           Refresh
         </Button>
       </div>
 
-      {error && (
+      {error ? (
         <ErrorState title="Failed to load analytics" detail={error} onRetry={() => void load()} />
+      ) : loading ? (
+        <LoadingState label="Loading analytics…" />
+      ) : emptyRange ? (
+        <EmptyState title="No support activity in this date range" />
+      ) : (
+        <>
+          <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <MetricCard
+              label="Created"
+              value={loading ? "…" : formatNumber(data.tickets.created)}
+              icon={LifeBuoy}
+            />
+            <MetricCard
+              label="Closed"
+              value={loading ? "…" : formatNumber(data.tickets.closed)}
+              icon={LifeBuoy}
+            />
+            <MetricCard
+              label="Assigned"
+              value={loading ? "…" : formatNumber(data.assignment.assigned)}
+              icon={LifeBuoy}
+            />
+            <MetricCard
+              label="Unassigned"
+              value={loading ? "…" : formatNumber(data.assignment.unassigned)}
+              icon={ShieldAlert}
+            />
+          </section>
+
+          <section className="grid gap-4 lg:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle>Created over time</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ClientOnly fallback={<div className="h-[220px]" />}>
+                  <AreaChart data={createdSeries} height={220} />
+                </ClientOnly>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>Closed over time</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ClientOnly fallback={<div className="h-[220px]" />}>
+                  <AreaChart data={closedSeries} height={220} />
+                </ClientOnly>
+              </CardContent>
+            </Card>
+          </section>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Status distribution</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ClientOnly fallback={<div className="h-[220px]" />}>
+                <BarChart data={statusSeries} height={220} />
+              </ClientOnly>
+            </CardContent>
+          </Card>
+
+          <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <MetricCard
+              label="Avg first response"
+              value={loading ? "…" : formatSeconds(data.response.averageFirstResponseSeconds)}
+              icon={Clock}
+            />
+            <MetricCard
+              label="Median first response"
+              value={loading ? "…" : formatSeconds(data.response.medianFirstResponseSeconds)}
+              icon={Clock}
+            />
+            <MetricCard
+              label="Avg time to first resolution"
+              value={loading ? "…" : formatSeconds(data.firstResolution.averageSeconds)}
+              icon={Clock}
+            />
+            <MetricCard
+              label="Median time to first resolution"
+              value={loading ? "…" : formatSeconds(data.firstResolution.medianSeconds)}
+              icon={Clock}
+            />
+            <MetricCard
+              label="Avg time to close"
+              value={loading ? "…" : formatSeconds(data.closure.averageSeconds)}
+              icon={Clock}
+            />
+            <MetricCard
+              label="CSAT average"
+              value={
+                loading
+                  ? "…"
+                  : data.csat.averageRating != null
+                    ? data.csat.averageRating.toFixed(2)
+                    : "—"
+              }
+              icon={Star}
+              accent="accent"
+            />
+          </section>
+
+          <section className="grid gap-4 lg:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle>First-response SLA</CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm text-nexa-ink-3">
+                On track {data.sla.firstResponse.onTrack} · At risk{" "}
+                {data.sla.firstResponse.atRisk} · Breached {data.sla.firstResponse.breached}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>First-resolution SLA</CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm text-nexa-ink-3">
+                On track {data.sla.firstResolution.onTrack} · At risk{" "}
+                {data.sla.firstResolution.atRisk} · Breached{" "}
+                {data.sla.firstResolution.breached}
+              </CardContent>
+            </Card>
+          </section>
+
+          <section className="grid gap-4 lg:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle>By category</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ClientOnly fallback={<div className="h-[220px]" />}>
+                  <BarChart data={categorySeries} height={220} />
+                </ClientOnly>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>By priority</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ClientOnly fallback={<div className="h-[220px]" />}>
+                  <BarChart data={prioritySeries} height={220} />
+                </ClientOnly>
+              </CardContent>
+            </Card>
+          </section>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>CSAT distribution ({data.csat.responses} responses)</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-wrap gap-3 text-sm">
+              {(["1", "2", "3", "4", "5"] as const).map((star) => (
+                <span key={star} className="rounded-md border border-nexa-line px-3 py-1">
+                  {star}★ · {data.csat.ratingDistribution[star]}
+                </span>
+              ))}
+            </CardContent>
+          </Card>
+        </>
       )}
-
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <MetricCard label="Created" value={loading ? "…" : formatNumber(data.tickets.created)} icon={LifeBuoy} />
-        <MetricCard label="Open backlog" value={loading ? "…" : formatNumber(data.tickets.open)} icon={Clock} />
-        <MetricCard label="Resolved" value={loading ? "…" : formatNumber(data.tickets.resolved)} icon={LifeBuoy} accent="info" />
-        <MetricCard label="Closed" value={loading ? "…" : formatNumber(data.tickets.closed)} icon={LifeBuoy} />
-        <MetricCard label="Escalated" value={loading ? "…" : formatNumber(data.tickets.escalated)} icon={ShieldAlert} accent="accent" />
-      </section>
-
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <MetricCard
-          label="Avg first response"
-          value={loading ? "…" : formatSeconds(data.response.averageFirstResponseSeconds)}
-          icon={Clock}
-        />
-        <MetricCard
-          label="Median first response"
-          value={loading ? "…" : formatSeconds(data.response.medianFirstResponseSeconds)}
-          icon={Clock}
-        />
-        <MetricCard
-          label="Avg time to first resolution"
-          value={loading ? "…" : formatSeconds(data.firstResolution.averageSeconds)}
-          icon={Clock}
-        />
-        <MetricCard
-          label="Median time to first resolution"
-          value={loading ? "…" : formatSeconds(data.firstResolution.medianSeconds)}
-          icon={Clock}
-        />
-        <MetricCard
-          label="Avg time to close"
-          value={loading ? "…" : formatSeconds(data.closure.averageSeconds)}
-          icon={Clock}
-        />
-        <MetricCard
-          label="CSAT average"
-          value={
-            loading
-              ? "…"
-              : data.csat.averageRating != null
-                ? data.csat.averageRating.toFixed(2)
-                : "—"
-          }
-          icon={Star}
-          accent="accent"
-        />
-      </section>
-
-      <section className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>First-response SLA</CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-nexa-ink-3">
-            On track {data.sla.firstResponse.onTrack} · At risk{" "}
-            {data.sla.firstResponse.atRisk} · Breached {data.sla.firstResponse.breached}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>First-resolution SLA</CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-nexa-ink-3">
-            On track {data.sla.firstResolution.onTrack} · At risk{" "}
-            {data.sla.firstResolution.atRisk} · Breached{" "}
-            {data.sla.firstResolution.breached}
-          </CardContent>
-        </Card>
-      </section>
-
-      <section className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>By category</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ClientOnly fallback={<div className="h-[220px]" />}>
-              <BarChart data={categorySeries} height={220} />
-            </ClientOnly>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>By priority</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ClientOnly fallback={<div className="h-[220px]" />}>
-              <BarChart data={prioritySeries} height={220} />
-            </ClientOnly>
-          </CardContent>
-        </Card>
-      </section>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>CSAT distribution ({data.csat.responses} responses)</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-wrap gap-3 text-sm">
-          {(["1", "2", "3", "4", "5"] as const).map((star) => (
-            <span key={star} className="rounded-md border border-nexa-line px-3 py-1">
-              {star}★ · {data.csat.ratingDistribution[star]}
-            </span>
-          ))}
-        </CardContent>
-      </Card>
     </div>
   );
 }

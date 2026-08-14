@@ -25,6 +25,7 @@ import type {
   OperationalSignal,
   RelatedSupportTicket,
   SupportOperationsOverview,
+  SupportAttentionResult,
 } from "../types";
 import { apiConfig } from "./config";
 import { apiFetch, getAccessToken, isNotImplemented } from "./client";
@@ -1497,6 +1498,9 @@ export type SupportAgentWorkload = {
   open: number;
   inProgress: number;
   waiting: number;
+  atRisk: number;
+  breached: number;
+  oldestActiveTicketAt: string | null;
 };
 
 export type SupportAgentWithWorkload = SupportAgent & {
@@ -1504,6 +1508,9 @@ export type SupportAgentWithWorkload = SupportAgent & {
   open: number;
   inProgress: number;
   waiting: number;
+  atRisk: number;
+  breached: number;
+  oldestActiveTicketAt: string | null;
 };
 
 export function joinSupportAgentsWithWorkload(
@@ -1519,6 +1526,9 @@ export function joinSupportAgentsWithWorkload(
       open: row?.open ?? 0,
       inProgress: row?.inProgress ?? 0,
       waiting: row?.waiting ?? 0,
+      atRisk: row?.atRisk ?? 0,
+      breached: row?.breached ?? 0,
+      oldestActiveTicketAt: row?.oldestActiveTicketAt ?? null,
     };
   });
 }
@@ -1533,6 +1543,11 @@ export async function fetchSupportAgentWorkload(): Promise<SupportAgentWorkload[
       inProgress?: number;
       in_progress?: number;
       waiting?: number;
+      atRisk?: number;
+      at_risk?: number;
+      breached?: number;
+      oldestActiveTicketAt?: string | null;
+      oldest_active_ticket_at?: string | null;
     }>;
   }>("/admin/stays/support/agents/workload");
   return (data.items ?? []).map((row) => ({
@@ -1541,6 +1556,11 @@ export async function fetchSupportAgentWorkload(): Promise<SupportAgentWorkload[
     open: Number(row.open ?? 0),
     inProgress: Number(row.inProgress ?? row.in_progress ?? 0),
     waiting: Number(row.waiting ?? 0),
+    atRisk: Number(row.atRisk ?? row.at_risk ?? 0),
+    breached: Number(row.breached ?? 0),
+    oldestActiveTicketAt: (row.oldestActiveTicketAt ??
+      row.oldest_active_ticket_at ??
+      null) as string | null,
   }));
 }
 
@@ -1679,6 +1699,31 @@ export async function fetchSupportAnalytics(query: {
           count: Number(r.count ?? 0),
         }))
       : [],
+    statusDistribution: Array.isArray(data.statusDistribution ?? data.status_distribution)
+      ? ((data.statusDistribution ?? data.status_distribution) as Record<string, unknown>[]).map(
+          (r) => ({
+            status: String(r.status ?? ""),
+            count: Number(r.count ?? 0),
+          }),
+        )
+      : [],
+    assignment: {
+      assigned: Number(
+        asRecord(data.assignment)?.assigned ?? asRecord(data.assignment)?.assigned_count ?? 0,
+      ),
+      unassigned: Number(
+        asRecord(data.assignment)?.unassigned ??
+          asRecord(data.assignment)?.unassigned_count ??
+          0,
+      ),
+    },
+    volume: Array.isArray(data.volume)
+      ? (data.volume as Record<string, unknown>[]).map((r) => ({
+          date: String(r.date ?? ""),
+          created: Number(r.created ?? 0),
+          closed: Number(r.closed ?? 0),
+        }))
+      : [],
   };
 }
 
@@ -1693,17 +1738,28 @@ export async function fetchSupportOperationsOverview(): Promise<SupportOperation
       : [];
   return {
     activeTickets: Number(data.activeTickets ?? data.active_tickets ?? 0),
+    openTickets: Number(data.openTickets ?? data.open_tickets ?? 0),
+    inProgressTickets: Number(
+      data.inProgressTickets ?? data.in_progress_tickets ?? 0,
+    ),
+    waitingTickets: Number(data.waitingTickets ?? data.waiting_tickets ?? 0),
+    escalatedTickets: Number(data.escalatedTickets ?? data.escalated_tickets ?? 0),
     unassignedTickets: Number(data.unassignedTickets ?? data.unassigned_tickets ?? 0),
+    highPriorityTickets: Number(
+      data.highPriorityTickets ?? data.high_priority_tickets ?? 0,
+    ),
     highPriorityUnassigned: Number(
       data.highPriorityUnassigned ?? data.high_priority_unassigned ?? 0,
     ),
     urgentTickets: Number(data.urgentTickets ?? data.urgent_tickets ?? 0),
+    slaOnTrack: Number(data.slaOnTrack ?? data.sla_on_track ?? 0),
     slaAtRisk: Number(data.slaAtRisk ?? data.sla_at_risk ?? 0),
     slaBreached: Number(data.slaBreached ?? data.sla_breached ?? 0),
     activeSignals: Number(data.activeSignals ?? data.active_signals ?? 0),
     acknowledgedSignals: Number(
       data.acknowledgedSignals ?? data.acknowledged_signals ?? 0,
     ),
+    generatedAt: String(data.generatedAt ?? data.generated_at ?? ""),
     agentWorkload: (workload as Record<string, unknown>[]).map((row) => ({
       adminId: String(row.adminId ?? row.admin_id ?? ""),
       openTickets: Number(row.openTickets ?? row.open_tickets ?? 0),
@@ -1712,6 +1768,67 @@ export async function fetchSupportOperationsOverview(): Promise<SupportOperation
       ),
       waitingTickets: Number(row.waitingTickets ?? row.waiting_tickets ?? 0),
     })),
+  };
+}
+
+export async function fetchSupportAttention(query: {
+  limit?: number;
+  offset?: number;
+} = {}): Promise<SupportAttentionResult> {
+  const params = new URLSearchParams();
+  params.set("limit", String(Math.min(Math.max(query.limit ?? 20, 1), 50)));
+  params.set("offset", String(Math.max(query.offset ?? 0, 0)));
+  const data = await apiFetch<{
+    items?: Record<string, unknown>[];
+    total?: number;
+    limit?: number;
+    offset?: number;
+    hasMore?: boolean;
+  }>(`/admin/stays/support/operations/attention?${params}`);
+  const items = (data.items ?? []).map((row) => ({
+    ticketId: String(row.ticketId ?? row.ticket_id ?? row.id ?? ""),
+    ticketNumber: String(row.ticketNumber ?? row.ticket_number ?? ""),
+    subject: String(row.subject ?? ""),
+    status: String(row.status ?? ""),
+    priority: String(row.priority ?? ""),
+    assignedAdminId: (row.assignedAdminId ??
+      row.assigned_admin_id ??
+      null) as string | null,
+    createdAt: String(row.createdAt ?? row.created_at ?? ""),
+    attentionReasons: Array.isArray(row.attentionReasons ?? row.attention_reasons)
+      ? ((row.attentionReasons ?? row.attention_reasons) as unknown[]).map(String)
+      : [],
+  }));
+  const limit = Number(data.limit ?? query.limit ?? 20);
+  const offset = Number(data.offset ?? query.offset ?? 0);
+  const total = Number(data.total ?? items.length);
+  return {
+    items,
+    total,
+    limit,
+    offset,
+    hasMore: Boolean(data.hasMore ?? offset + items.length < total),
+  };
+}
+
+export async function fetchSupportSignals(query: {
+  limit?: number;
+  offset?: number;
+  status?: string;
+  includeResolved?: boolean;
+} = {}): Promise<{ items: OperationalSignal[]; total: number }> {
+  const params = new URLSearchParams();
+  params.set("limit", String(Math.min(Math.max(query.limit ?? 50, 1), 100)));
+  params.set("offset", String(Math.max(query.offset ?? 0, 0)));
+  if (query.status) params.set("status", query.status);
+  if (query.includeResolved) params.set("includeResolved", "true");
+  const data = await apiFetch<{
+    items?: Record<string, unknown>[];
+    total?: number;
+  }>(`/admin/stays/support/signals?${params}`);
+  return {
+    items: (data.items ?? []).map(mapOperationalSignal),
+    total: Number(data.total ?? data.items?.length ?? 0),
   };
 }
 

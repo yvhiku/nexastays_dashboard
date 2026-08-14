@@ -66,6 +66,15 @@ function SupportInboxPage() {
   const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
   const [searchInput, setSearchInput] = useState(() => searchParams.get("q") ?? "");
   const requesterUserId = searchParams.get("requesterUserId") || undefined;
+  const assignedAdminIdParam = searchParams.get("assignedAdminId");
+  const assignedAdminFilter =
+    workspaceConfig.mode === "ADMIN" &&
+    assignedAdminIdParam &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      assignedAdminIdParam,
+    )
+      ? assignedAdminIdParam
+      : undefined;
   const [offset, setOffset] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(
     () => searchParams.get("ticket") ?? null,
@@ -111,9 +120,16 @@ function SupportInboxPage() {
           offset,
           status: statusQuery(filter),
           search: query.trim() || undefined,
-          unassigned: scoped === "unassigned" ? true : undefined,
-          assignedAdminId:
-            scoped === "mine" && session?.userId ? session.userId : undefined,
+          unassigned: assignedAdminFilter
+            ? undefined
+            : scoped === "unassigned"
+              ? true
+              : undefined,
+          assignedAdminId: assignedAdminFilter
+            ? assignedAdminFilter
+            : scoped === "mine" && session?.userId
+              ? session.userId
+              : undefined,
           slaState: slaScope === "all" ? undefined : slaScope,
           requesterUserId,
         });
@@ -132,6 +148,7 @@ function SupportInboxPage() {
       slaScope,
       session?.userId,
       requesterUserId,
+      assignedAdminFilter,
       workspaceConfig,
     ],
   );

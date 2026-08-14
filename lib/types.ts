@@ -317,6 +317,9 @@ export interface SupportAnalytics {
   };
   categories: { category: string; count: number }[];
   priorities: { priority: string; count: number }[];
+  statusDistribution: { status: string; count: number }[];
+  assignment: { assigned: number; unassigned: number };
+  volume: { date: string; created: number; closed: number }[];
 }
 
 export interface TicketMessage {
@@ -418,19 +421,45 @@ export interface RelatedSupportTicket {
 
 export interface SupportOperationsOverview {
   activeTickets: number;
+  openTickets: number;
+  inProgressTickets: number;
+  waitingTickets: number;
+  escalatedTickets: number;
   unassignedTickets: number;
+  highPriorityTickets: number;
   highPriorityUnassigned: number;
   urgentTickets: number;
+  slaOnTrack: number;
   slaAtRisk: number;
   slaBreached: number;
   activeSignals: number;
   acknowledgedSignals: number;
+  generatedAt?: string;
   agentWorkload: {
     adminId: string;
     openTickets: number;
     highPriorityTickets: number;
     waitingTickets: number;
   }[];
+}
+
+export interface SupportAttentionItem {
+  ticketId: string;
+  ticketNumber: string;
+  subject: string;
+  status: string;
+  priority: string;
+  assignedAdminId: string | null;
+  createdAt: string;
+  attentionReasons: string[];
+}
+
+export interface SupportAttentionResult {
+  items: SupportAttentionItem[];
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
 }
 
 export interface PaymentRecord {

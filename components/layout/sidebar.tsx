@@ -5,7 +5,7 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { ChevronDown, Menu, X } from "lucide-react";
-import { navEntries, type NavGroup, type NavItem } from "@/lib/nav";
+import { navEntries, navPathMatches, type NavGroup, type NavItem } from "@/lib/nav";
 import { fetchStats, EMPTY_DASHBOARD_STATS } from "@/lib/api/stays-admin";
 import { cn, initials } from "@/lib/utils";
 import { useAsyncStats } from "@/lib/hooks/use-async-data";
@@ -17,9 +17,7 @@ import {
 } from "@/lib/rbac";
 
 function pathMatches(href: string, pathname: string) {
-  return href === "/"
-    ? pathname === "/"
-    : pathname === href || pathname.startsWith(`${href}/`);
+  return navPathMatches(href, pathname);
 }
 
 function groupContainsPath(group: NavGroup, pathname: string) {
