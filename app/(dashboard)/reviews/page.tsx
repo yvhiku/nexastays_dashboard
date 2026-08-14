@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState, Suspense } from "react";
+import { useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { Star, Flag, Trash2, Check } from "lucide-react";
+import { Star, Trash2, Check, EyeOff } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import { PageToolbar } from "@/components/ui/page-toolbar";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
 import { HBar } from "@/components/charts/charts";
-import { fetchReviews, hideReview, publishReview, deleteReview } from "@/lib/api/stays-admin";
+import { fetchReviews, hideReview, publishReview, deleteReview, fetchReviewMediaBlobUrl } from "@/lib/api/stays-admin";
 import { useAsyncList } from "@/lib/hooks/use-async-data";
 import { RelativeTime } from "@/components/ui/relative-time";
 import type { Review } from "@/lib/types";
@@ -41,7 +41,7 @@ function ReviewsPageInner() {
 
   const ratingDistribution = [5, 4, 3, 2, 1].map((stars) => ({
     stars,
-    count: reviews.filter((r) => r.rating === stars).length,
+    count: reviews.filter((r) => Math.round(r.rating) === stars).length,
   }));
 
   const avg =
@@ -107,7 +107,7 @@ function ReviewsPageInner() {
               </div>
             </div>
             <p className="mt-1 text-xs text-nexa-ink-4">
-              Based on {totalRatings} ratings
+              Based on {reviews.length} ratings
             </p>
           </CardContent>
         </Card>
@@ -215,6 +215,7 @@ function ReviewRow({
 }) {
   const [acting, setActing] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [lightbox, setLightbox] = useState<{ url: string; label: string } | null>(null);
 
   async function run(action: "hide" | "publish" | "remove") {
     if (action === "remove") {
@@ -244,8 +245,8 @@ function ReviewRow({
 
   return (
     <Card className="p-4">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex">
               {[1, 2, 3, 4, 5].map((s) => (
@@ -266,64 +267,158 @@ function ReviewRow({
           </div>
           <p className="mt-2 text-sm text-nexa-ink-2">“{review.comment}”</p>
           <RelativeTime value={review.createdAt} className="mt-1.5 block text-xs text-nexa-ink-4" />
+          <ReviewPhotos
+            reviewId={review.id}
+            media={review.media}
+            onOpen={(next) => setLightbox(next)}
+          />
         </div>
-        <div className="flex shrink-0 gap-1">
-          {review.status === "flagged" && (
+        <div className="flex shrink-0 flex-wrap gap-1">
+          {review.status === "published" ? (
             <Button
-              variant="ghost"
-              size="icon"
-              title="Publish / restore"
-              disabled={acting}
-              onClick={() => run("publish")}
-            >
-              <Check className="h-4 w-4" />
-            </Button>
-          )}
-          {review.status === "published" && (
-            <Button
-              variant="ghost"
-              size="icon"
-              title="Hide"
+              size="sm"
+              variant="outline"
+              title="Hide this review from public listing pages"
               disabled={acting}
               onClick={() => run("hide")}
             >
-              <Flag className="h-4 w-4" />
+              <EyeOff className="h-4 w-4" /> Hide
             </Button>
-          )}
-          {review.status === "flagged" && (
+          ) : null}
+          {review.status === "flagged" || review.status === "removed" ? (
             <Button
-              variant="ghost"
-              size="icon"
-              title="Keep published"
+              size="sm"
+              variant="success"
+              title="Publish this review"
               disabled={acting}
               onClick={() => run("publish")}
             >
-              <Flag className="h-4 w-4" />
+              <Check className="h-4 w-4" /> Restore
             </Button>
-          )}
-          {review.status !== "removed" && (
+          ) : null}
+          {review.status !== "removed" ? (
             <Button
+              size="sm"
               variant="danger-outline"
-              size="icon"
-              title="Remove (audited)"
+              title="Remove this review (audited)"
               disabled={acting}
               onClick={() => run("remove")}
             >
-              <Trash2 className="h-4 w-4" />
+              <Trash2 className="h-4 w-4" /> Remove
             </Button>
-          )}
+          ) : null}
         </div>
       </div>
       <ConfirmDialog
         open={confirmRemove}
         title="Remove this review?"
-        description="This is audited server-side and is not a silent delete."
+        description="This is audited server-side and is not a silent delete. Guests will no longer see it on the listing."
         confirmLabel="Remove"
         danger
         busy={acting}
         onConfirm={() => void confirmDelete()}
         onCancel={() => setConfirmRemove(false)}
       />
+      {lightbox ? (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-nexa-ink/80 p-4"
+          onClick={() => setLightbox(null)}
+        >
+          <div className="relative max-h-[90vh] w-full max-w-3xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <p className="text-sm font-medium text-white">{lightbox.label}</p>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-white hover:bg-white/10"
+                onClick={() => setLightbox(null)}
+              >
+                Close
+              </Button>
+            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={lightbox.url}
+              alt={lightbox.label}
+              className="max-h-[85vh] w-full rounded-md bg-white object-contain"
+            />
+          </div>
+        </div>
+      ) : null}
     </Card>
+  );
+}
+
+function ReviewPhotos({
+  reviewId,
+  media,
+  onOpen,
+}: {
+  reviewId: string;
+  media: Review["media"];
+  onOpen: (next: { url: string; label: string }) => void;
+}) {
+  const [urls, setUrls] = useState<string[]>([]);
+  const blobUrlsRef = useRef<string[]>([]);
+
+  const photos = media ?? [];
+  const assetKey = photos.map((item) => item.assetId).join(",");
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      for (const url of blobUrlsRef.current) URL.revokeObjectURL(url);
+      blobUrlsRef.current = [];
+      setUrls([]);
+      if (photos.length === 0) return;
+      try {
+        const next: string[] = [];
+        for (const item of photos) {
+          const url = await fetchReviewMediaBlobUrl(reviewId, item.assetId);
+          blobUrlsRef.current.push(url);
+          if (!cancelled) next.push(url);
+        }
+        if (!cancelled) setUrls(next);
+      } catch {
+        if (!cancelled) setUrls([]);
+      }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+    // assetKey stands in for media identity so parent rerenders do not refetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reviewId, assetKey]);
+
+  useEffect(() => {
+    return () => {
+      for (const url of blobUrlsRef.current) URL.revokeObjectURL(url);
+    };
+  }, []);
+
+  if (photos.length === 0) return null;
+
+  return (
+    <div className="mt-3 flex flex-wrap gap-2">
+      {urls.length === 0
+        ? photos.map((item) => (
+            <div
+              key={item.assetId}
+              className="h-20 w-20 rounded-md border border-dashed border-nexa-line bg-nexa-bg-2"
+            />
+          ))
+        : urls.map((url, index) => (
+            <button
+              key={url}
+              type="button"
+              className="overflow-hidden rounded-md border border-nexa-line"
+              onClick={() => onOpen({ url, label: `Review photo ${index + 1}` })}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={url} alt={`Review photo ${index + 1}`} className="h-20 w-20 object-cover" />
+            </button>
+          ))}
+    </div>
   );
 }

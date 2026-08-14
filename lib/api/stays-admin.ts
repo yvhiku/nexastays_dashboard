@@ -463,7 +463,9 @@ export function mapReview(row: {
   createdAt?: string;
   status?: string | null;
   listing_id?: string | null;
+  listing_title?: string | null;
   listing?: { title?: string; host_user_id?: string } | null;
+  media?: Array<{ asset_id?: string; assetId?: string }>;
 }): Review {
   const rating = Number(row.rating) || 0;
   const raw = row.status?.toUpperCase();
@@ -477,13 +479,21 @@ export function mapReview(row: {
   return {
     id: row.id,
     guestName: row.guest_name?.trim() || (guestId ? guestId.slice(0, 8) : "—"),
-    listingTitle: row.listing?.title ?? (row.listing_id ? row.listing_id.slice(0, 8) : "—"),
+    listingTitle:
+      row.listing?.title ??
+      row.listing_title ??
+      (row.listing_id ? row.listing_id.slice(0, 8) : "—"),
+    listingId: row.listing_id ?? undefined,
     hostName: row.listing?.host_user_id?.slice(0, 8) ?? "—",
     rating,
     comment: row.comment ?? "",
     createdAt: row.created_at ?? row.createdAt ?? "",
     status,
     sentiment: rating >= 4 ? "positive" : rating <= 2 ? "negative" : "neutral",
+    media: (row.media ?? [])
+      .map((item) => item.asset_id ?? item.assetId)
+      .filter((id): id is string => Boolean(id))
+      .map((assetId) => ({ assetId })),
   };
 }
 
@@ -1146,6 +1156,25 @@ export async function pauseListing(id: string) {
 
 export async function unpauseListing(id: string) {
   return apiFetch(`/admin/stays/listings/${id}/unpause`, { method: "POST" });
+}
+
+export async function fetchReviewMediaBlobUrl(
+  reviewId: string,
+  assetId: string,
+): Promise<string> {
+  const token = getAccessToken();
+  const res = await fetch(
+    `${apiConfig.staysBaseUrl}/admin/stays/reviews/${encodeURIComponent(reviewId)}/media/${encodeURIComponent(assetId)}`,
+    {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: "include",
+    },
+  );
+  if (!res.ok) {
+    throw new Error(`Failed to load review photo (${res.status})`);
+  }
+  const blob = await res.blob();
+  return URL.createObjectURL(blob);
 }
 
 export async function hideReview(id: string) {

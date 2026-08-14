@@ -190,6 +190,7 @@ export interface Review {
   id: string;
   guestName: string;
   listingTitle: string;
+  listingId?: string;
   hostName: string;
   rating: number;
   comment: string;
@@ -197,6 +198,7 @@ export interface Review {
   status: "published" | "flagged" | "removed";
   sentiment: "positive" | "neutral" | "negative";
   flagReason?: string;
+  media?: Array<{ assetId: string }>;
 }
 
 export type TicketCategory =
