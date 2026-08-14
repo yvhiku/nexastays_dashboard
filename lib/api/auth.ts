@@ -1,4 +1,4 @@
-import { apiFetch, setAccessToken } from "./client";
+import { apiFetch, getAccessToken, setAccessToken } from "./client";
 
 export type AdminSessionUser = {
   userId?: string;
@@ -52,8 +52,32 @@ function mapSession(raw: {
   };
 }
 
+export async function restoreAdminAccessToken(): Promise<string | null> {
+  if (getAccessToken()) return getAccessToken();
+  try {
+    const data = await apiFetch<{
+      access_token?: string;
+      accessToken?: string;
+    }>("/auth/refresh", {
+      base: "identity",
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    const token = data.access_token ?? data.accessToken;
+    if (!token) return null;
+    setAccessToken(token);
+    return token;
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchAdminSession(): Promise<AdminSession | null> {
   try {
+    if (!getAccessToken()) {
+      await restoreAdminAccessToken();
+    }
+    if (!getAccessToken()) return null;
     const result = await apiFetch<{
       authenticated?: boolean;
       user?: AdminSessionUser;

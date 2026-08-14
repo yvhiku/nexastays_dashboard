@@ -30,19 +30,41 @@ function resolveDashboardApiUrl(
   return (value || fallback).replace(/\/$/, "");
 }
 
+function alignLoopbackOrigin(baseUrl: string): string {
+  if (typeof window === "undefined") return baseUrl;
+  try {
+    const parsed = new URL(baseUrl);
+    const pageHost = window.location.hostname;
+    if (
+      isLoopbackHostname(parsed.hostname) &&
+      isLoopbackHostname(pageHost) &&
+      parsed.hostname !== pageHost
+    ) {
+      parsed.hostname = pageHost;
+    }
+    return parsed.toString().replace(/\/$/, "");
+  } catch {
+    return baseUrl;
+  }
+}
+
 export const apiConfig = {
   get staysBaseUrl(): string {
-    return resolveDashboardApiUrl(
-      process.env.NEXT_PUBLIC_STAYS_API_URL,
-      "http://127.0.0.1:3002/api/v1",
-      "NEXT_PUBLIC_STAYS_API_URL",
+    return alignLoopbackOrigin(
+      resolveDashboardApiUrl(
+        process.env.NEXT_PUBLIC_STAYS_API_URL,
+        "http://127.0.0.1:3002/api/v1",
+        "NEXT_PUBLIC_STAYS_API_URL",
+      ),
     );
   },
   get identityBaseUrl(): string {
-    return resolveDashboardApiUrl(
-      process.env.NEXT_PUBLIC_IDENTITY_API_URL,
-      "http://127.0.0.1:3001/api/v1",
-      "NEXT_PUBLIC_IDENTITY_API_URL",
+    return alignLoopbackOrigin(
+      resolveDashboardApiUrl(
+        process.env.NEXT_PUBLIC_IDENTITY_API_URL,
+        "http://127.0.0.1:3001/api/v1",
+        "NEXT_PUBLIC_IDENTITY_API_URL",
+      ),
     );
   },
 };
