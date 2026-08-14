@@ -4,7 +4,20 @@ import { useState } from "react";
 import { useAuth } from "@/components/providers/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ApiError } from "@/lib/api/client";
+
+function loginErrorMessage(err: unknown): string {
+  const status =
+    err && typeof err === "object" && "status" in err
+      ? Number((err as { status: unknown }).status)
+      : undefined;
+  const message = err instanceof Error ? err.message : "";
+  if (status === 429) {
+    return "Too many login attempts. Wait a minute and try again.";
+  }
+  if (status === 401) return "Invalid email or password.";
+  if (message && message !== "Unauthorized") return message;
+  return "Login failed. Check credentials.";
+}
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -20,9 +33,7 @@ export default function LoginPage() {
     try {
       await login(email, password);
     } catch (err) {
-      setError(
-        err instanceof ApiError ? err.message : "Login failed. Check credentials.",
-      );
+      setError(loginErrorMessage(err));
     } finally {
       setLoading(false);
     }

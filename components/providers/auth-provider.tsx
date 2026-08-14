@@ -78,6 +78,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const t = await adminLogin(email, password);
     setToken(t);
     const next = await fetchAdminSession();
+    if (!next?.authenticated) {
+      throw new Error(
+        "Signed in, but the session could not be loaded. Refresh and try again.",
+      );
+    }
     setSession(next);
   }, []);
 
