@@ -33,10 +33,20 @@ import {
   patchOperationalSignal,
   reopenTicket,
   fetchSupportAgentMetrics,
+  fetchOperationsPerformance,
   type AgentMetrics,
+  type OperationsPerformance,
   type SupportAgentWithWorkload,
+  type SupportPerformanceRange,
 } from "@/lib/api/stays-admin";
+import { FilterTabs } from "@/components/ui/toolbar";
 import { CannedRepliesManager } from "@/components/support/canned-replies-manager";
+import {
+  OperationsAgentsTable,
+  OperationsCategoriesTable,
+  OperationsLanguagesTable,
+} from "@/components/support/operations-performance-panels";
+import { freshnessCopy } from "@/components/support/performance-format";
 import type {
   OperationalSignal,
   SupportAttentionItem,
@@ -65,6 +75,21 @@ const EMPTY_OVERVIEW: SupportOperationsOverview = {
   activeSignals: 0,
   acknowledgedSignals: 0,
   agentWorkload: [],
+};
+
+type OpsTab = "overview" | "agents" | "categories" | "languages" | "signals";
+
+const EMPTY_PERFORMANCE: OperationsPerformance = {
+  range: "30d",
+  from: "",
+  to: "",
+  generatedAt: "",
+  dataFreshness: "LIVE",
+  agents: [],
+  categories: [],
+  languages: [],
+  cannedReplies: [],
+  signals: [],
 };
 
 function reasonLabel(reason: string) {
@@ -128,6 +153,9 @@ export default function SupportOperationsPage() {
     () => new Map(),
   );
   const [reopenReasons, setReopenReasons] = useState<Record<string, string>>({});
+  const [tab, setTab] = useState<OpsTab>("overview");
+  const [range, setRange] = useState<SupportPerformanceRange>("30d");
+  const [performance, loadPerformance] = useSection(EMPTY_PERFORMANCE);
 
   const refresh = useCallback(() => {
     if (!workspaceConfig.canViewOperations) return;
@@ -140,7 +168,7 @@ export default function SupportOperationsPage() {
     );
     void loadAgents(async () => {
       const [roster, workload, metrics] = await Promise.all([
-        fetchSupportAgents(),
+        fetchSupportAgents().catch(() => []),
         fetchSupportAgentWorkload(),
         fetchSupportAgentMetrics().catch(() => [] as AgentMetrics[]),
       ]);
@@ -148,12 +176,15 @@ export default function SupportOperationsPage() {
       return joinSupportAgentsWithWorkload(roster, workload);
     });
     void loadSignals(() => fetchSupportSignals({ limit: 50 }));
+    void loadPerformance(() => fetchOperationsPerformance({ range }));
   }, [
     workspaceConfig.canViewOperations,
     loadOverview,
     loadAttention,
     loadAgents,
     loadSignals,
+    loadPerformance,
+    range,
   ]);
 
   useEffect(() => {
@@ -186,7 +217,32 @@ export default function SupportOperationsPage() {
         }
       />
 
-      {workspaceConfig.canViewQueueHealth && (
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <FilterTabs
+          options={[
+            { value: "overview", label: "Overview" },
+            { value: "agents", label: "Agents" },
+            { value: "categories", label: "Categories" },
+            { value: "languages", label: "Languages" },
+            { value: "signals", label: "Signals" },
+          ]}
+          value={tab}
+          onChange={setTab}
+        />
+        {tab !== "overview" && tab !== "signals" ? (
+          <FilterTabs
+            options={[
+              { value: "7d", label: "7 days" },
+              { value: "30d", label: "30 days" },
+              { value: "90d", label: "90 days" },
+            ]}
+            value={range}
+            onChange={setRange}
+          />
+        ) : null}
+      </div>
+
+      {tab === "overview" && workspaceConfig.canViewQueueHealth && (
         <section>
           <h2 className="mb-3 font-display text-lg font-semibold text-nexa-ink">
             Queue health
@@ -271,7 +327,7 @@ export default function SupportOperationsPage() {
         </section>
       )}
 
-      {workspaceConfig.canViewAttentionQueue && (
+      {tab === "overview" && workspaceConfig.canViewAttentionQueue && (
         <Card>
           <CardHeader>
             <CardTitle>Needs attention</CardTitle>
@@ -408,7 +464,7 @@ export default function SupportOperationsPage() {
         </Card>
       )}
 
-      {workspaceConfig.canViewAgentMonitoring && (
+      {tab === "overview" && workspaceConfig.canViewAgentMonitoring && (
         <Card>
           <CardHeader>
             <CardTitle>Agent workload</CardTitle>
@@ -511,7 +567,7 @@ export default function SupportOperationsPage() {
         </Card>
       )}
 
-      {workspaceConfig.canViewGlobalSignals && (
+      {tab === "signals" && workspaceConfig.canViewGlobalSignals && (
         <Card>
           <CardHeader>
             <CardTitle>
@@ -574,14 +630,100 @@ export default function SupportOperationsPage() {
         </Card>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Canned replies</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <CannedRepliesManager />
-        </CardContent>
-      </Card>
+      {tab === "overview" && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Canned replies</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <CannedRepliesManager />
+          </CardContent>
+        </Card>
+      )}
+
+      {tab === "agents" && (
+        <Card>
+          <CardHeader>
+            <div>
+              <CardTitle>Agent performance</CardTitle>
+              <p className="mt-1 text-xs text-nexa-ink-4">
+                {freshnessCopy(performance.data)} · names from Identity roster when available
+              </p>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {performance.error ? (
+              <ErrorState
+                title="Failed to load agent performance"
+                detail={performance.error}
+                onRetry={() =>
+                  void loadPerformance(() => fetchOperationsPerformance({ range }))
+                }
+              />
+            ) : performance.loading && performance.data.agents.length === 0 ? (
+              <LoadingState label="Loading agent performance…" />
+            ) : (
+              <OperationsAgentsTable
+                rows={performance.data.agents}
+                roster={agents.data}
+                signals={performance.data.signals}
+              />
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {tab === "categories" && (
+        <Card>
+          <CardHeader>
+            <div>
+              <CardTitle>Categories</CardTitle>
+              <p className="mt-1 text-xs text-nexa-ink-4">{freshnessCopy(performance.data)}</p>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {performance.error ? (
+              <ErrorState
+                title="Failed to load categories"
+                detail={performance.error}
+                onRetry={() =>
+                  void loadPerformance(() => fetchOperationsPerformance({ range }))
+                }
+              />
+            ) : performance.loading && performance.data.categories.length === 0 ? (
+              <LoadingState label="Loading categories…" />
+            ) : (
+              <OperationsCategoriesTable rows={performance.data.categories} />
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {tab === "languages" && (
+        <Card>
+          <CardHeader>
+            <div>
+              <CardTitle>Languages</CardTitle>
+              <p className="mt-1 text-xs text-nexa-ink-4">{freshnessCopy(performance.data)}</p>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {performance.error ? (
+              <ErrorState
+                title="Failed to load languages"
+                detail={performance.error}
+                onRetry={() =>
+                  void loadPerformance(() => fetchOperationsPerformance({ range }))
+                }
+              />
+            ) : performance.loading && performance.data.languages.length === 0 ? (
+              <LoadingState label="Loading languages…" />
+            ) : (
+              <OperationsLanguagesTable rows={performance.data.languages} />
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

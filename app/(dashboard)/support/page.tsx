@@ -6,10 +6,10 @@ import { useAuth } from "@/components/providers/auth-provider";
 import {
   fetchTicket,
   fetchTickets,
-  fetchMySupportMetrics,
+  fetchMySupportPerformance,
   fetchSupportAgentWorkload,
   joinSupportAgentsWithWorkload,
-  type AgentMetrics,
+  type MySupportPerformance,
   type SupportAgentWithWorkload,
   type TicketsResult,
 } from "@/lib/api/stays-admin";
@@ -96,7 +96,7 @@ function SupportInboxPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [agents, setAgents] = useState<SupportAgentWithWorkload[]>([]);
-  const [myMetrics, setMyMetrics] = useState<AgentMetrics | null>(null);
+  const [myMetrics, setMyMetrics] = useState<MySupportPerformance | null>(null);
   const selectedIdRef = useRef(selectedId);
   selectedIdRef.current = selectedId;
 
@@ -224,7 +224,7 @@ function SupportInboxPage() {
       return;
     }
     let cancelled = false;
-    void fetchMySupportMetrics()
+    void fetchMySupportPerformance()
       .then((next) => {
         if (!cancelled) setMyMetrics(next);
       })
@@ -320,7 +320,10 @@ function SupportInboxPage() {
             <p className="text-[11px] font-medium uppercase tracking-wide text-nexa-ink-4">
               My performance
             </p>
-            <AgentPerformanceStrip metrics={myMetrics} />
+            <AgentPerformanceStrip
+              metrics={myMetrics.metrics}
+              freshness={myMetrics}
+            />
           </div>
         ) : null
       }

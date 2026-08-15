@@ -1507,6 +1507,8 @@ function mapOperationalSignal(row: Record<string, unknown>): OperationalSignal {
     firstDetectedAt: String(row.firstDetectedAt ?? row.first_detected_at ?? ""),
     lastDetectedAt: String(row.lastDetectedAt ?? row.last_detected_at ?? ""),
     ticketId: (row.ticketId ?? row.ticket_id) as string | null | undefined,
+    subjectType: (row.subjectType ?? row.subject_type) as string | undefined,
+    subjectId: (row.subjectId ?? row.subject_id) as string | undefined,
   };
 }
 
@@ -1976,6 +1978,414 @@ export async function fetchMySupportMetrics(): Promise<AgentMetrics> {
     "/admin/stays/support/me/metrics",
   );
   return mapAgentMetrics(row);
+}
+
+export type SupportPerformanceRange = "7d" | "30d" | "90d";
+
+export type AgentPerformanceMetrics = {
+  agentId: string;
+  reviewCount: number;
+  averageAgentRating: number | null;
+  averageOverallRating: number | null;
+  problemSolvedCount: number;
+  problemNotSolvedCount: number;
+  problemSolvedRate: number | null;
+  ticketsClosed: number;
+  ticketsReopened: number;
+  reopenRate: number | null;
+  firstResponseCount: number;
+  firstResponseSlaRate: number | null;
+  averageFirstResponseSeconds: number | null;
+  resolutionSlaRate: number | null;
+  activeCount: number;
+  inProgress: number;
+  waitingForCustomer: number;
+  waitingForHost: number;
+  escalated: number;
+  workloadCap: number;
+};
+
+export type CategoryPerformanceRow = {
+  category: string;
+  ticketVolume: number;
+  reviewCount: number;
+  averageOverallRating: number | null;
+  averageAgentRating: number | null;
+  problemSolvedRate: number | null;
+  ticketsClosed: number;
+  ticketsReopened: number;
+  firstResponseSlaRate: number | null;
+  resolutionSlaRate: number | null;
+};
+
+export type LanguagePerformanceRow = {
+  language: string;
+  ticketVolume: number;
+  reviewCount: number;
+  averageOverallRating: number | null;
+  problemSolvedRate: number | null;
+  firstResponseSlaRate: number | null;
+  resolutionSlaRate: number | null;
+};
+
+export type CannedEffectivenessRow = {
+  replyId: string;
+  title: string | null;
+  usageCount: number;
+  reviewedCount: number;
+  problemSolvedRate: number | null;
+  averageOverallRating: number | null;
+};
+
+export type AgentFeedbackItem = {
+  ticketId: string;
+  category: string;
+  agentRating: number | null;
+  problemSolved: boolean | null;
+  comment: string | null;
+  submittedAt: string;
+};
+
+export type AgentPerformanceTrendPoint = {
+  period: "previous" | "current";
+  from: string;
+  to: string;
+  averageAgentRating: number | null;
+  problemSolvedRate: number | null;
+  firstResponseSlaRate: number | null;
+  resolutionSlaRate: number | null;
+  reviewCount: number;
+};
+
+export type PerformanceFreshness = {
+  range: SupportPerformanceRange;
+  from: string;
+  to: string;
+  generatedAt: string;
+  dataFreshness: "LIVE" | "DAILY_RECONCILED";
+};
+
+export type MySupportPerformance = PerformanceFreshness & {
+  agentId: string;
+  metrics: AgentPerformanceMetrics;
+};
+
+export type OperationsPerformance = PerformanceFreshness & {
+  agents: AgentPerformanceMetrics[];
+  categories: CategoryPerformanceRow[];
+  languages: LanguagePerformanceRow[];
+  cannedReplies: CannedEffectivenessRow[];
+  signals: OperationalSignal[];
+};
+
+export type AgentPerformanceDetail = PerformanceFreshness & {
+  agentId: string;
+  metrics: AgentPerformanceMetrics;
+  trend: AgentPerformanceTrendPoint[];
+  categories: CategoryPerformanceRow[];
+  feedback: AgentFeedbackItem[];
+  signals: OperationalSignal[];
+};
+
+export type CoachingNote = {
+  id: string;
+  agentUserId: string;
+  createdBy: string;
+  note: string;
+  status: "OPEN" | "COMPLETED";
+  followUpAt: string | null;
+  completedAt: string | null;
+  completedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+  followUpOverdue: boolean;
+};
+
+function numOrNull(value: unknown): number | null {
+  if (value == null || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function mapAgentPerformanceMetrics(
+  row: Record<string, unknown>,
+  fallbackId = "",
+): AgentPerformanceMetrics {
+  return {
+    agentId: String(row.agentId ?? row.agent_id ?? fallbackId),
+    reviewCount: Number(row.reviewCount ?? row.review_count ?? 0),
+    averageAgentRating: numOrNull(row.averageAgentRating ?? row.average_agent_rating),
+    averageOverallRating: numOrNull(
+      row.averageOverallRating ?? row.average_overall_rating,
+    ),
+    problemSolvedCount: Number(row.problemSolvedCount ?? row.problem_solved_count ?? 0),
+    problemNotSolvedCount: Number(
+      row.problemNotSolvedCount ?? row.problem_not_solved_count ?? 0,
+    ),
+    problemSolvedRate: numOrNull(row.problemSolvedRate ?? row.problem_solved_rate),
+    ticketsClosed: Number(row.ticketsClosed ?? row.tickets_closed ?? 0),
+    ticketsReopened: Number(row.ticketsReopened ?? row.tickets_reopened ?? 0),
+    reopenRate: numOrNull(row.reopenRate ?? row.reopen_rate),
+    firstResponseCount: Number(
+      row.firstResponseCount ?? row.first_response_count ?? 0,
+    ),
+    firstResponseSlaRate: numOrNull(
+      row.firstResponseSlaRate ?? row.first_response_sla_rate,
+    ),
+    averageFirstResponseSeconds: numOrNull(
+      row.averageFirstResponseSeconds ?? row.average_first_response_seconds,
+    ),
+    resolutionSlaRate: numOrNull(
+      row.resolutionSlaRate ?? row.resolution_sla_rate,
+    ),
+    activeCount: Number(row.activeCount ?? row.active_count ?? 0),
+    inProgress: Number(row.inProgress ?? row.in_progress ?? 0),
+    waitingForCustomer: Number(
+      row.waitingForCustomer ?? row.waiting_for_customer ?? 0,
+    ),
+    waitingForHost: Number(row.waitingForHost ?? row.waiting_for_host ?? 0),
+    escalated: Number(row.escalated ?? 0),
+    workloadCap: Number(row.workloadCap ?? row.workload_cap ?? 0),
+  };
+}
+
+function mapPerformanceFreshness(row: Record<string, unknown>): PerformanceFreshness {
+  const range = row.range === "7d" || row.range === "90d" ? row.range : "30d";
+  return {
+    range,
+    from: String(row.from ?? ""),
+    to: String(row.to ?? ""),
+    generatedAt: String(row.generatedAt ?? row.generated_at ?? ""),
+    dataFreshness:
+      row.dataFreshness === "DAILY_RECONCILED" ||
+      row.data_freshness === "DAILY_RECONCILED"
+        ? "DAILY_RECONCILED"
+        : "LIVE",
+  };
+}
+
+function mapCoachingNote(row: Record<string, unknown>): CoachingNote {
+  return {
+    id: String(row.id ?? ""),
+    agentUserId: String(row.agentUserId ?? row.agent_user_id ?? ""),
+    createdBy: String(row.createdBy ?? row.created_by ?? ""),
+    note: String(row.note ?? ""),
+    status: row.status === "COMPLETED" ? "COMPLETED" : "OPEN",
+    followUpAt: (row.followUpAt ?? row.follow_up_at ?? null) as string | null,
+    completedAt: (row.completedAt ?? row.completed_at ?? null) as string | null,
+    completedBy: (row.completedBy ?? row.completed_by ?? null) as string | null,
+    createdAt: String(row.createdAt ?? row.created_at ?? ""),
+    updatedAt: String(row.updatedAt ?? row.updated_at ?? ""),
+    followUpOverdue: Boolean(row.followUpOverdue ?? row.follow_up_overdue),
+  };
+}
+
+function rangeQuery(range?: SupportPerformanceRange) {
+  const params = new URLSearchParams();
+  if (range) params.set("range", range);
+  const qs = params.toString();
+  return qs ? `?${qs}` : "";
+}
+
+export async function fetchMySupportPerformance(
+  range: SupportPerformanceRange = "30d",
+): Promise<MySupportPerformance> {
+  const row = await apiFetch<Record<string, unknown>>(
+    `/admin/stays/support/me/performance${rangeQuery(range)}`,
+  );
+  const metrics = asRecord(row.metrics) ?? row;
+  return {
+    ...mapPerformanceFreshness(row),
+    agentId: String(row.agentId ?? row.agent_id ?? ""),
+    metrics: mapAgentPerformanceMetrics(metrics, String(row.agentId ?? "")),
+  };
+}
+
+export async function fetchOperationsPerformance(
+  query: { range?: SupportPerformanceRange; category?: string; language?: string } = {},
+): Promise<OperationsPerformance> {
+  const params = new URLSearchParams();
+  if (query.range) params.set("range", query.range);
+  if (query.category) params.set("category", query.category);
+  if (query.language) params.set("language", query.language);
+  const qs = params.toString();
+  const row = await apiFetch<Record<string, unknown>>(
+    `/admin/stays/support/operations/performance${qs ? `?${qs}` : ""}`,
+  );
+  return {
+    ...mapPerformanceFreshness(row),
+    agents: Array.isArray(row.agents)
+      ? (row.agents as Record<string, unknown>[]).map((item) =>
+          mapAgentPerformanceMetrics(item),
+        )
+      : [],
+    categories: Array.isArray(row.categories)
+      ? (row.categories as Record<string, unknown>[]).map((item) => ({
+          category: String(item.category ?? ""),
+          ticketVolume: Number(item.ticketVolume ?? item.ticket_volume ?? 0),
+          reviewCount: Number(item.reviewCount ?? item.review_count ?? 0),
+          averageOverallRating: numOrNull(
+            item.averageOverallRating ?? item.average_overall_rating,
+          ),
+          averageAgentRating: numOrNull(
+            item.averageAgentRating ?? item.average_agent_rating,
+          ),
+          problemSolvedRate: numOrNull(
+            item.problemSolvedRate ?? item.problem_solved_rate,
+          ),
+          ticketsClosed: Number(item.ticketsClosed ?? item.tickets_closed ?? 0),
+          ticketsReopened: Number(
+            item.ticketsReopened ?? item.tickets_reopened ?? 0,
+          ),
+          firstResponseSlaRate: numOrNull(
+            item.firstResponseSlaRate ?? item.first_response_sla_rate,
+          ),
+          resolutionSlaRate: numOrNull(
+            item.resolutionSlaRate ?? item.resolution_sla_rate,
+          ),
+        }))
+      : [],
+    languages: Array.isArray(row.languages)
+      ? (row.languages as Record<string, unknown>[]).map((item) => ({
+          language: String(item.language ?? "unknown"),
+          ticketVolume: Number(item.ticketVolume ?? item.ticket_volume ?? 0),
+          reviewCount: Number(item.reviewCount ?? item.review_count ?? 0),
+          averageOverallRating: numOrNull(
+            item.averageOverallRating ?? item.average_overall_rating,
+          ),
+          problemSolvedRate: numOrNull(
+            item.problemSolvedRate ?? item.problem_solved_rate,
+          ),
+          firstResponseSlaRate: numOrNull(
+            item.firstResponseSlaRate ?? item.first_response_sla_rate,
+          ),
+          resolutionSlaRate: numOrNull(
+            item.resolutionSlaRate ?? item.resolution_sla_rate,
+          ),
+        }))
+      : [],
+    cannedReplies: Array.isArray(row.cannedReplies ?? row.canned_replies)
+      ? ((row.cannedReplies ?? row.canned_replies) as Record<string, unknown>[]).map(
+          (item) => ({
+            replyId: String(item.replyId ?? item.reply_id ?? ""),
+            title: (item.title as string | null) ?? null,
+            usageCount: Number(item.usageCount ?? item.usage_count ?? 0),
+            reviewedCount: Number(item.reviewedCount ?? item.reviewed_count ?? 0),
+            problemSolvedRate: numOrNull(
+              item.problemSolvedRate ?? item.problem_solved_rate,
+            ),
+            averageOverallRating: numOrNull(
+              item.averageOverallRating ?? item.average_overall_rating,
+            ),
+          }),
+        )
+      : [],
+    signals: mapSignalList(row.signals),
+  };
+}
+
+export async function fetchAgentPerformance(
+  agentId: string,
+  range: SupportPerformanceRange = "30d",
+): Promise<AgentPerformanceDetail> {
+  const row = await apiFetch<Record<string, unknown>>(
+    `/admin/stays/support/agents/${encodeURIComponent(agentId)}/performance${rangeQuery(range)}`,
+  );
+  const metrics = asRecord(row.metrics) ?? row;
+  return {
+    ...mapPerformanceFreshness(row),
+    agentId: String(row.agentId ?? row.agent_id ?? agentId),
+    metrics: mapAgentPerformanceMetrics(metrics, agentId),
+    trend: Array.isArray(row.trend)
+      ? (row.trend as Record<string, unknown>[]).map((item) => ({
+          period: item.period === "previous" ? "previous" : "current",
+          from: String(item.from ?? ""),
+          to: String(item.to ?? ""),
+          averageAgentRating: numOrNull(
+            item.averageAgentRating ?? item.average_agent_rating,
+          ),
+          problemSolvedRate: numOrNull(
+            item.problemSolvedRate ?? item.problem_solved_rate,
+          ),
+          firstResponseSlaRate: numOrNull(
+            item.firstResponseSlaRate ?? item.first_response_sla_rate,
+          ),
+          resolutionSlaRate: numOrNull(
+            item.resolutionSlaRate ?? item.resolution_sla_rate,
+          ),
+          reviewCount: Number(item.reviewCount ?? item.review_count ?? 0),
+        }))
+      : [],
+    categories: Array.isArray(row.categories)
+      ? (row.categories as Record<string, unknown>[]).map((item) => ({
+          category: String(item.category ?? ""),
+          ticketVolume: Number(item.ticketVolume ?? item.ticket_volume ?? 0),
+          reviewCount: Number(item.reviewCount ?? item.review_count ?? 0),
+          averageOverallRating: numOrNull(
+            item.averageOverallRating ?? item.average_overall_rating,
+          ),
+          averageAgentRating: numOrNull(
+            item.averageAgentRating ?? item.average_agent_rating,
+          ),
+          problemSolvedRate: numOrNull(
+            item.problemSolvedRate ?? item.problem_solved_rate,
+          ),
+          ticketsClosed: Number(item.ticketsClosed ?? item.tickets_closed ?? 0),
+          ticketsReopened: Number(
+            item.ticketsReopened ?? item.tickets_reopened ?? 0,
+          ),
+          firstResponseSlaRate: numOrNull(
+            item.firstResponseSlaRate ?? item.first_response_sla_rate,
+          ),
+          resolutionSlaRate: numOrNull(
+            item.resolutionSlaRate ?? item.resolution_sla_rate,
+          ),
+        }))
+      : [],
+    feedback: Array.isArray(row.feedback)
+      ? (row.feedback as Record<string, unknown>[]).map((item) => ({
+          ticketId: String(item.ticketId ?? item.ticket_id ?? ""),
+          category: String(item.category ?? ""),
+          agentRating: numOrNull(item.agentRating ?? item.agent_rating),
+          problemSolved:
+            item.problemSolved == null && item.problem_solved == null
+              ? null
+              : Boolean(item.problemSolved ?? item.problem_solved),
+          comment: (item.comment as string | null) ?? null,
+          submittedAt: String(item.submittedAt ?? item.submitted_at ?? ""),
+        }))
+      : [],
+    signals: mapSignalList(row.signals),
+  };
+}
+
+export async function fetchCoachingNotes(agentId: string): Promise<CoachingNote[]> {
+  const data = await apiFetch<{ items?: Record<string, unknown>[] }>(
+    `/admin/stays/support/agents/${encodeURIComponent(agentId)}/coaching-notes`,
+  );
+  return (data.items ?? []).map(mapCoachingNote);
+}
+
+export async function createCoachingNote(
+  agentId: string,
+  input: { note: string; followUpAt?: string | null },
+): Promise<CoachingNote> {
+  const row = await apiFetch<Record<string, unknown>>(
+    `/admin/stays/support/agents/${encodeURIComponent(agentId)}/coaching-notes`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
+  return mapCoachingNote(row);
+}
+
+export async function patchCoachingNote(
+  noteId: string,
+  input: { note?: string; followUpAt?: string | null; status?: "OPEN" | "COMPLETED" },
+): Promise<CoachingNote> {
+  const row = await apiFetch<Record<string, unknown>>(
+    `/admin/stays/support/coaching-notes/${encodeURIComponent(noteId)}`,
+    { method: "PATCH", body: JSON.stringify(input) },
+  );
+  return mapCoachingNote(row);
 }
 
 export async function fetchSupportAgentMetrics(): Promise<AgentMetrics[]> {

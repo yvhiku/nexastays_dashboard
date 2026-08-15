@@ -121,6 +121,11 @@ export function signalChip(type: string) {
   if (type === "UNASSIGNED_HIGH_PRIORITY") return "Unassigned High Priority";
   if (type === "MULTIPLE_OPEN_TICKETS") return "Multiple Open Tickets";
   if (type === "FOLLOW_UP_REQUIRED") return "Follow-up required";
+  if (type === "LOW_CSAT_PATTERN") return "Low CSAT pattern";
+  if (type === "AGENT_LOW_CSAT_PATTERN") return "Low agent rating";
+  if (type === "AGENT_LOW_SOLVED_RATE") return "Low solved rate";
+  if (type === "AGENT_SLA_DECLINE") return "SLA decline";
+  if (type === "CATEGORY_OUTCOME_DECLINE") return "Category outcome decline";
   return type.replace(/_/g, " ");
 }
 

@@ -439,7 +439,11 @@ export type OperationalSignalType =
   | "SLA_BREACHED"
   | "UNASSIGNED_HIGH_PRIORITY"
   | "LOW_CSAT_PATTERN"
-  | "FOLLOW_UP_REQUIRED";
+  | "FOLLOW_UP_REQUIRED"
+  | "AGENT_LOW_CSAT_PATTERN"
+  | "AGENT_LOW_SOLVED_RATE"
+  | "AGENT_SLA_DECLINE"
+  | "CATEGORY_OUTCOME_DECLINE";
 
 export interface OperationalSignal {
   id: string;
@@ -450,6 +454,9 @@ export interface OperationalSignal {
   firstDetectedAt: string;
   lastDetectedAt: string;
   ticketId?: string | null;
+  reportId?: string | null;
+  subjectType?: string;
+  subjectId?: string;
 }
 
 export interface RelatedSupportTicket {
