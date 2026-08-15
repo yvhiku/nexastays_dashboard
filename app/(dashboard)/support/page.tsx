@@ -6,11 +6,14 @@ import { useAuth } from "@/components/providers/auth-provider";
 import {
   fetchTicket,
   fetchTickets,
+  fetchMySupportMetrics,
   fetchSupportAgentWorkload,
   joinSupportAgentsWithWorkload,
+  type AgentMetrics,
   type SupportAgentWithWorkload,
   type TicketsResult,
 } from "@/lib/api/stays-admin";
+import { AgentPerformanceStrip } from "@/components/support/agent-performance-strip";
 import { fetchSupportAgents } from "@/lib/api/identity-admin";
 import type { Ticket } from "@/lib/types";
 import { SupportInboxShell } from "@/components/support/support-inbox-shell";
@@ -93,6 +96,7 @@ function SupportInboxPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [agents, setAgents] = useState<SupportAgentWithWorkload[]>([]);
+  const [myMetrics, setMyMetrics] = useState<AgentMetrics | null>(null);
   const selectedIdRef = useRef(selectedId);
   selectedIdRef.current = selectedId;
 
@@ -215,6 +219,24 @@ function SupportInboxPage() {
   }, [workspaceConfig.canViewAgentWorkload]);
 
   useEffect(() => {
+    if (workspaceConfig.mode !== "AGENT") {
+      setMyMetrics(null);
+      return;
+    }
+    let cancelled = false;
+    void fetchMySupportMetrics()
+      .then((next) => {
+        if (!cancelled) setMyMetrics(next);
+      })
+      .catch(() => {
+        if (!cancelled) setMyMetrics(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceConfig.mode]);
+
+  useEffect(() => {
     void loadTickets(false);
   }, [loadTickets]);
 
@@ -292,6 +314,16 @@ function SupportInboxPage() {
       lookupRef={lookupRef}
       ticketCount={data.total}
       agents={agents}
+      headerExtra={
+        workspaceConfig.mode === "AGENT" && myMetrics ? (
+          <div className="mt-2">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-nexa-ink-4">
+              My performance
+            </p>
+            <AgentPerformanceStrip metrics={myMetrics} />
+          </div>
+        ) : null
+      }
       onRetry={() => void loadTickets(false)}
       onRetrySelected={() => {
         if (selectedId && selectedId !== "lookup") void refreshSelectedTicket(selectedId);

@@ -77,19 +77,24 @@ function roleLabel(role: StaffRole) {
 
 function WorkloadStats({ row }: { row?: SupportAgentWorkload }) {
   const stats = [
-    { label: "Assigned", value: row?.assigned ?? 0 },
-    { label: "Open", value: row?.open ?? 0 },
     { label: "In progress", value: row?.inProgress ?? 0 },
-    { label: "Waiting", value: row?.waiting ?? 0 },
+    { label: "Wait customer", value: row?.waitingForCustomer ?? 0 },
+    { label: "Wait host", value: row?.waitingForHost ?? 0 },
+    { label: "Escalated", value: row?.escalated ?? 0 },
   ];
   return (
-    <div className="grid grid-cols-4 gap-2 text-center">
-      {stats.map((stat) => (
-        <div key={stat.label} className="rounded-md bg-nexa-bg-2 px-2 py-1.5">
-          <p className="text-sm font-semibold text-nexa-ink">{stat.value}</p>
-          <p className="text-[10px] text-nexa-ink-4">{stat.label}</p>
-        </div>
-      ))}
+    <div className="space-y-1">
+      <p className="text-[11px] text-nexa-ink-4">
+        Assigned {row?.assigned ?? 0} · Waiting {row?.waiting ?? 0}
+      </p>
+      <div className="grid grid-cols-4 gap-2 text-center">
+        {stats.map((stat) => (
+          <div key={stat.label} className="rounded-md bg-nexa-bg-2 px-2 py-1.5">
+            <p className="text-sm font-semibold text-nexa-ink">{stat.value}</p>
+            <p className="text-[10px] text-nexa-ink-4">{stat.label}</p>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

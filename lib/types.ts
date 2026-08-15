@@ -250,11 +250,13 @@ export interface Ticket {
   lastMessagePreview?: string;
   conversationId?: string;
   requesterUserId?: string;
+  requesterLanguage?: string | null;
   sla?: SupportSlaPayload;
   routingSuggestion?: { suggestedPriority: TicketPriority; reason: string };
   csat?: TicketCsat | null;
   reviewAgentId?: string | null;
   reviewAgentName?: string | null;
+  resolutionType?: string | null;
   operationalSignalTypes?: string[];
 }
 
@@ -299,6 +301,7 @@ export interface CannedReply {
   title: string;
   body: string;
   category?: string | null;
+  language?: string | null;
   isActive: boolean;
   updatedAt: string;
 }
@@ -500,6 +503,8 @@ export interface TicketViewer {
   viewerId: string;
   lastSeenAt: string;
   expiresAt: string;
+  lastActivityAt?: string | null;
+  activityState?: "VIEWING" | "HANDLING";
 }
 
 export interface SupportAttentionResult {

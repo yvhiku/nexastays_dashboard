@@ -44,10 +44,69 @@ export function formatActivityAction(
     return assigned;
   }
   if (action === "support_ticket_reopened") {
-    return "Ticket reopened";
+    const reason = String(metadata?.reason ?? "");
+    return reason
+      ? `Ticket reopened · ${reopenReasonLabel(reason)}`
+      : "Ticket reopened";
+  }
+  if (action === "support_ticket_resolution_changed") {
+    const next = String(
+      metadata?.newResolutionType ?? metadata?.new_resolution_type ?? "",
+    );
+    return next
+      ? `Resolution marked as ${resolutionTypeLabel(next)}`
+      : "Resolution updated";
   }
   return action.replace(/_/g, " ");
 }
+
+export function resolutionTypeLabel(type: string) {
+  const labels: Record<string, string> = {
+    ISSUE_FIXED: "Issue fixed",
+    INFORMATION_PROVIDED: "Information provided",
+    PAYMENT_RESOLVED: "Payment resolved",
+    BOOKING_UPDATED: "Booking updated",
+    POLICY_EXPLAINED: "Policy explained",
+    DUPLICATE: "Duplicate",
+    NO_ACTION_POSSIBLE: "No action possible",
+    OTHER: "Other",
+  };
+  return labels[type] ?? type.replace(/_/g, " ").toLowerCase();
+}
+
+export function reopenReasonLabel(reason: string) {
+  const labels: Record<string, string> = {
+    CUSTOMER_UNRESOLVED: "Customer reported unresolved",
+    INCORRECT_RESOLUTION: "Incorrect resolution",
+    ADDITIONAL_INFORMATION: "Additional information",
+    NEW_RELATED_ISSUE: "New related issue",
+    ADMIN_REVIEW: "Admin review",
+    ADMIN_FOLLOW_UP: "Admin follow-up",
+    OTHER: "Other",
+  };
+  return labels[reason] ?? reason.replace(/_/g, " ").toLowerCase();
+}
+
+export const SUPPORT_RESOLUTION_TYPES = [
+  "ISSUE_FIXED",
+  "INFORMATION_PROVIDED",
+  "PAYMENT_RESOLVED",
+  "BOOKING_UPDATED",
+  "POLICY_EXPLAINED",
+  "DUPLICATE",
+  "NO_ACTION_POSSIBLE",
+  "OTHER",
+] as const;
+
+export const SUPPORT_REOPEN_REASONS = [
+  "CUSTOMER_UNRESOLVED",
+  "INCORRECT_RESOLUTION",
+  "ADDITIONAL_INFORMATION",
+  "NEW_RELATED_ISSUE",
+  "ADMIN_REVIEW",
+  "ADMIN_FOLLOW_UP",
+  "OTHER",
+] as const;
 
 export function slaLabel(state: string | undefined) {
   if (state === "AT_RISK") return "At risk";

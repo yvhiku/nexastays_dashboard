@@ -4,6 +4,10 @@ import type { KeyboardEvent, RefObject } from "react";
 import { Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { CannedReply, TicketStatus } from "@/lib/types";
+import {
+  SUPPORT_RESOLUTION_TYPES,
+  resolutionTypeLabel,
+} from "./labels";
 
 export function TicketComposer({
   reply,
@@ -18,6 +22,10 @@ export function TicketComposer({
   textareaRef,
   onSend,
   onQuickStatus,
+  onCannedSelect,
+  onComposerActivity,
+  resolutionType,
+  onResolutionTypeChange,
 }: {
   reply: string;
   onReplyChange: (value: string) => void;
@@ -31,6 +39,10 @@ export function TicketComposer({
   textareaRef?: RefObject<HTMLTextAreaElement | null>;
   onSend: () => void;
   onQuickStatus?: (status: TicketStatus) => void;
+  onCannedSelect?: (reply: CannedReply) => void;
+  onComposerActivity?: () => void;
+  resolutionType?: string | null;
+  onResolutionTypeChange?: (value: string) => void;
 }) {
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
@@ -43,6 +55,7 @@ export function TicketComposer({
   const showQuick =
     Boolean(canChangeStatus && onQuickStatus) && !closed && currentStatus !== "CLOSED";
   const quickDisabled = Boolean(disabled || statusChanging);
+  const showResolution = showQuick;
 
   return (
     <div className="shrink-0 border-t border-nexa-line bg-white p-3">
@@ -52,7 +65,10 @@ export function TicketComposer({
             size="sm"
             variant={currentStatus === "WAITING_FOR_CUSTOMER" ? "secondary" : "outline"}
             disabled={quickDisabled}
-            onClick={() => onQuickStatus?.("WAITING_FOR_CUSTOMER")}
+            onClick={() => {
+              onComposerActivity?.();
+              onQuickStatus?.("WAITING_FOR_CUSTOMER");
+            }}
           >
             Waiting
           </Button>
@@ -60,7 +76,10 @@ export function TicketComposer({
             size="sm"
             variant={currentStatus === "RESOLVED" ? "secondary" : "outline"}
             disabled={quickDisabled}
-            onClick={() => onQuickStatus?.("RESOLVED")}
+            onClick={() => {
+              onComposerActivity?.();
+              onQuickStatus?.("RESOLVED");
+            }}
           >
             Resolved
           </Button>
@@ -68,10 +87,34 @@ export function TicketComposer({
             size="sm"
             variant="outline"
             disabled={quickDisabled}
-            onClick={() => onQuickStatus?.("CLOSED")}
+            onClick={() => {
+              onComposerActivity?.();
+              onQuickStatus?.("CLOSED");
+            }}
           >
             Close
           </Button>
+        </div>
+      )}
+      {showResolution && onResolutionTypeChange && (
+        <div className="mb-2">
+          <label className="mb-1 block text-[11px] text-nexa-ink-4">
+            How was this resolved? (optional)
+          </label>
+          <select
+            className="h-8 max-w-full rounded-md border border-nexa-line bg-white px-2 text-xs"
+            value={resolutionType ?? ""}
+            disabled={quickDisabled}
+            aria-label="Resolution type"
+            onChange={(e) => onResolutionTypeChange(e.target.value)}
+          >
+            <option value="">Skip</option>
+            {SUPPORT_RESOLUTION_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {resolutionTypeLabel(type)}
+              </option>
+            ))}
+          </select>
         </div>
       )}
       {canned.length > 0 && (
@@ -84,7 +127,10 @@ export function TicketComposer({
             const id = e.target.value;
             e.target.value = "";
             const cannedReply = canned.find((c) => c.id === id);
-            if (cannedReply) onReplyChange(cannedReply.body);
+            if (!cannedReply) return;
+            onComposerActivity?.();
+            if (onCannedSelect) onCannedSelect(cannedReply);
+            else onReplyChange(cannedReply.body);
           }}
         >
           <option value="" disabled>
@@ -93,6 +139,8 @@ export function TicketComposer({
           {canned.map((c) => (
             <option key={c.id} value={c.id}>
               {c.title}
+              {c.category ? ` · ${c.category}` : " · GENERAL"}
+              {c.language ? ` · ${c.language}` : ""}
             </option>
           ))}
         </select>
@@ -101,7 +149,11 @@ export function TicketComposer({
         <textarea
           ref={textareaRef}
           value={reply}
-          onChange={(e) => onReplyChange(e.target.value)}
+          onChange={(e) => {
+            onReplyChange(e.target.value);
+            onComposerActivity?.();
+          }}
+          onFocus={() => onComposerActivity?.()}
           onKeyDown={onKeyDown}
           rows={3}
           placeholder={closed ? "This support ticket is closed." : "Write a reply…"}

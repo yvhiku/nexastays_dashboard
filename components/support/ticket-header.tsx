@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/badge";
@@ -12,6 +13,7 @@ import {
   assignedAgentSubtitle,
   resolveAssignedAgent,
 } from "./assigned-agent";
+import { SUPPORT_REOPEN_REASONS, reopenReasonLabel } from "./labels";
 
 const STATUS_ACTIONS: TicketStatus[] = [
   "IN_PROGRESS",
@@ -53,9 +55,9 @@ export function TicketHeader({
   onStatusChange: (status: TicketStatus) => void;
   onPriorityChange: (priority: TicketPriority) => void;
   onOpenAssign: () => void;
-  onReopen?: () => void;
+  onReopen?: (reason: string) => void;
 }) {
-  const statusOptions = Array.from(new Set([ticket.status, ...STATUS_ACTIONS]));
+  const [reopenReason, setReopenReason] = useState("CUSTOMER_UNRESOLVED");
   const assignedToYou =
     Boolean(ticket.assignee) &&
     Boolean(workspaceConfig.currentUserId) &&
@@ -154,14 +156,29 @@ export function TicketHeader({
             <p className="text-xs text-nexa-ink-3">Assigned to you</p>
           ) : null}
           {ticket.status === "CLOSED" && workspaceConfig.canReopenTickets && onReopen && (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={statusChanging}
-              onClick={onReopen}
-            >
-              Reopen
-            </Button>
+            <span className="flex items-center gap-1">
+              <select
+                className={selectClass}
+                value={reopenReason}
+                disabled={statusChanging}
+                aria-label="Reopen reason"
+                onChange={(e) => setReopenReason(e.target.value)}
+              >
+                {SUPPORT_REOPEN_REASONS.map((reason) => (
+                  <option key={reason} value={reason}>
+                    {reopenReasonLabel(reason)}
+                  </option>
+                ))}
+              </select>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={statusChanging}
+                onClick={() => onReopen(reopenReason)}
+              >
+                Reopen
+              </Button>
+            </span>
           )}
         </div>
       )}

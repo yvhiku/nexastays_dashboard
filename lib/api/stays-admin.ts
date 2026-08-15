@@ -1321,6 +1321,10 @@ function mapTicket(row: Record<string, unknown>): Ticket {
     requesterUserId: (row.requester_user_id ?? row.requesterUserId) as
       | string
       | undefined,
+    requesterLanguage: (row.requester_language ?? row.requesterLanguage) as
+      | string
+      | null
+      | undefined,
     sla: mapSla(row.sla),
     routingSuggestion: routing
       ? {
@@ -1337,6 +1341,10 @@ function mapTicket(row: Record<string, unknown>): Ticket {
       | null
       | undefined,
     reviewAgentName: (row.review_agent_name ?? row.reviewAgentName) as
+      | string
+      | null
+      | undefined,
+    resolutionType: (row.resolution_type ?? row.resolutionType) as
       | string
       | null
       | undefined,
@@ -1587,6 +1595,15 @@ export async function fetchTicket(ticketId: string): Promise<TicketDetail> {
           viewerId: String(viewer.viewerId ?? viewer.viewer_id ?? ""),
           lastSeenAt: String(viewer.lastSeenAt ?? viewer.last_seen_at ?? ""),
           expiresAt: String(viewer.expiresAt ?? viewer.expires_at ?? ""),
+          lastActivityAt: (viewer.lastActivityAt ?? viewer.last_activity_at) as
+            | string
+            | null
+            | undefined,
+          activityState:
+            viewer.activityState === "HANDLING" ||
+            viewer.activity_state === "HANDLING"
+              ? "HANDLING"
+              : "VIEWING",
         }))
       : [],
   };
@@ -1628,9 +1645,13 @@ export async function reopenTicket(
   return mapTicket(row);
 }
 
-export async function putTicketPresence(ticketId: string): Promise<void> {
+export async function putTicketPresence(
+  ticketId: string,
+  handling = false,
+): Promise<void> {
   await apiFetch(`/admin/stays/support/tickets/${ticketId}/presence`, {
     method: "PUT",
+    body: JSON.stringify({ handling }),
   });
 }
 
@@ -1661,7 +1682,12 @@ export async function putSupportAgentSkills(
 
 export async function patchTicket(
   ticketId: string,
-  patch: { status?: string; priority?: string; assigned_admin_id?: string | null },
+  patch: {
+    status?: string;
+    priority?: string;
+    assigned_admin_id?: string | null;
+    resolutionType?: string | null;
+  },
 ): Promise<Ticket> {
   const row = await apiFetch<Record<string, unknown>>(
     `/admin/stays/support/tickets/${ticketId}`,
@@ -1679,6 +1705,9 @@ export type SupportAgentWorkload = {
   open: number;
   inProgress: number;
   waiting: number;
+  waitingForCustomer: number;
+  waitingForHost: number;
+  escalated: number;
   atRisk: number;
   breached: number;
   oldestActiveTicketAt: string | null;
@@ -1691,6 +1720,9 @@ export type SupportAgentWithWorkload = SupportAgent & {
   open: number;
   inProgress: number;
   waiting: number;
+  waitingForCustomer: number;
+  waitingForHost: number;
+  escalated: number;
   atRisk: number;
   breached: number;
   oldestActiveTicketAt: string | null;
@@ -1711,6 +1743,9 @@ export function joinSupportAgentsWithWorkload(
       open: row?.open ?? 0,
       inProgress: row?.inProgress ?? 0,
       waiting: row?.waiting ?? 0,
+      waitingForCustomer: row?.waitingForCustomer ?? 0,
+      waitingForHost: row?.waitingForHost ?? 0,
+      escalated: row?.escalated ?? 0,
       atRisk: row?.atRisk ?? 0,
       breached: row?.breached ?? 0,
       oldestActiveTicketAt: row?.oldestActiveTicketAt ?? null,
@@ -1747,6 +1782,19 @@ export async function fetchSupportAgentWorkload(): Promise<SupportAgentWorkload[
     open: Number(row.open ?? 0),
     inProgress: Number(row.inProgress ?? row.in_progress ?? 0),
     waiting: Number(row.waiting ?? 0),
+    waitingForCustomer: Number(
+      (row as { waitingForCustomer?: number }).waitingForCustomer ??
+        (row as { waiting_for_customer?: number }).waiting_for_customer ??
+        0,
+    ),
+    waitingForHost: Number(
+      (row as { waitingForHost?: number }).waitingForHost ??
+        (row as { waiting_for_host?: number }).waiting_for_host ??
+        0,
+    ),
+    escalated: Number(
+      (row as { escalated?: number }).escalated ?? 0,
+    ),
     atRisk: Number(row.atRisk ?? row.at_risk ?? 0),
     breached: Number(row.breached ?? 0),
     oldestActiveTicketAt: (row.oldestActiveTicketAt ??
@@ -1768,6 +1816,7 @@ function mapCannedReply(row: Record<string, unknown>): CannedReply {
     title: String(row.title ?? ""),
     body: String(row.body ?? ""),
     category: (row.category as string | null | undefined) ?? null,
+    language: (row.language as string | null | undefined) ?? null,
     isActive: Boolean(row.is_active ?? row.isActive ?? true),
     updatedAt: String(row.updated_at ?? row.updatedAt ?? ""),
   };
@@ -1783,6 +1832,157 @@ export async function fetchCannedReplies(
     `/admin/stays/support/canned-replies${qs ? `?${qs}` : ""}`,
   );
   return (data.items ?? []).map(mapCannedReply);
+}
+
+export async function createCannedReply(input: {
+  title: string;
+  body: string;
+  category?: string | null;
+  language?: string | null;
+}): Promise<CannedReply> {
+  const row = await apiFetch<Record<string, unknown>>(
+    "/admin/stays/support/canned-replies",
+    { method: "POST", body: JSON.stringify(input) },
+  );
+  return mapCannedReply(row);
+}
+
+export async function patchCannedReply(
+  id: string,
+  input: {
+    title?: string;
+    body?: string;
+    category?: string | null;
+    language?: string | null;
+    is_active?: boolean;
+  },
+): Promise<CannedReply> {
+  const row = await apiFetch<Record<string, unknown>>(
+    `/admin/stays/support/canned-replies/${id}`,
+    { method: "PATCH", body: JSON.stringify(input) },
+  );
+  return mapCannedReply(row);
+}
+
+export async function deactivateCannedReply(id: string): Promise<void> {
+  await apiFetch(`/admin/stays/support/canned-replies/${id}`, {
+    method: "DELETE",
+  });
+}
+
+export async function renderCannedReply(
+  replyId: string,
+  ticketId: string,
+): Promise<{ id: string; title: string; body: string }> {
+  const row = await apiFetch<Record<string, unknown>>(
+    `/admin/stays/support/canned-replies/${replyId}/render`,
+    { method: "POST", body: JSON.stringify({ ticketId }) },
+  );
+  return {
+    id: String(row.id ?? replyId),
+    title: String(row.title ?? ""),
+    body: String(row.body ?? ""),
+  };
+}
+
+export type AgentMetrics = {
+  agentId: string;
+  activeCount: number;
+  inProgress: number;
+  waitingForCustomer: number;
+  waitingForHost: number;
+  escalated: number;
+  assignedCount: number;
+  closedCount: number;
+  reopenedCount: number;
+  followUpRequiredCount: number;
+  averageFirstResponseSeconds: number | null;
+  averageResolutionSeconds: number | null;
+  reviewCount: number;
+  averageOverallRating: number | null;
+  averageAgentRating: number | null;
+  problemSolvedRate: number | null;
+  trends: {
+    problemSolvedRateDelta: number | null;
+    averageFirstResponseSecondsDelta: number | null;
+  } | null;
+};
+
+function mapAgentMetrics(row: Record<string, unknown>, fallbackId = ""): AgentMetrics {
+  const trends = asRecord(row.trends);
+  return {
+    agentId: String(row.agentId ?? row.agent_id ?? fallbackId),
+    activeCount: Number(row.activeCount ?? row.active_count ?? 0),
+    inProgress: Number(row.inProgress ?? row.in_progress ?? 0),
+    waitingForCustomer: Number(
+      row.waitingForCustomer ?? row.waiting_for_customer ?? 0,
+    ),
+    waitingForHost: Number(row.waitingForHost ?? row.waiting_for_host ?? 0),
+    escalated: Number(row.escalated ?? 0),
+    assignedCount: Number(row.assignedCount ?? row.assigned_count ?? 0),
+    closedCount: Number(row.closedCount ?? row.closed_count ?? 0),
+    reopenedCount: Number(row.reopenedCount ?? row.reopened_count ?? 0),
+    followUpRequiredCount: Number(
+      row.followUpRequiredCount ?? row.follow_up_required_count ?? 0,
+    ),
+    averageFirstResponseSeconds:
+      row.averageFirstResponseSeconds != null
+        ? Number(row.averageFirstResponseSeconds)
+        : row.average_first_response_seconds != null
+          ? Number(row.average_first_response_seconds)
+          : null,
+    averageResolutionSeconds:
+      row.averageResolutionSeconds != null
+        ? Number(row.averageResolutionSeconds)
+        : row.average_resolution_seconds != null
+          ? Number(row.average_resolution_seconds)
+          : null,
+    reviewCount: Number(row.reviewCount ?? row.review_count ?? 0),
+    averageOverallRating:
+      row.averageOverallRating != null
+        ? Number(row.averageOverallRating)
+        : row.average_overall_rating != null
+          ? Number(row.average_overall_rating)
+          : null,
+    averageAgentRating:
+      row.averageAgentRating != null
+        ? Number(row.averageAgentRating)
+        : row.average_agent_rating != null
+          ? Number(row.average_agent_rating)
+          : null,
+    problemSolvedRate:
+      row.problemSolvedRate != null
+        ? Number(row.problemSolvedRate)
+        : row.problem_solved_rate != null
+          ? Number(row.problem_solved_rate)
+          : null,
+    trends: trends
+      ? {
+          problemSolvedRateDelta:
+            trends.problemSolvedRateDelta != null
+              ? Number(trends.problemSolvedRateDelta)
+              : null,
+          averageFirstResponseSecondsDelta:
+            trends.averageFirstResponseSecondsDelta != null
+              ? Number(trends.averageFirstResponseSecondsDelta)
+              : null,
+        }
+      : null,
+  };
+}
+
+export async function fetchMySupportMetrics(): Promise<AgentMetrics> {
+  const row = await apiFetch<Record<string, unknown>>(
+    "/admin/stays/support/me/metrics",
+  );
+  return mapAgentMetrics(row);
+}
+
+export async function fetchSupportAgentMetrics(): Promise<AgentMetrics[]> {
+  const data = await apiFetch<{ items?: Record<string, unknown>[] }>(
+    "/admin/stays/support/agents/metrics",
+  );
+  return (data.items ?? []).map((row) => mapAgentMetrics(row));
 }
 
 export async function fetchSupportAnalytics(query: {

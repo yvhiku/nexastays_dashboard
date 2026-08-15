@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { FilterTabs, SearchInput } from "@/components/ui/toolbar";
 import { cn } from "@/lib/utils";
@@ -50,6 +51,7 @@ export function SupportInboxShell({
   onSearchChange,
   onLookupRefChange,
   onLookup,
+  headerExtra,
 }: {
   workspaceConfig: SupportWorkspaceConfig;
   tickets: Ticket[];
@@ -83,6 +85,7 @@ export function SupportInboxShell({
   onSearchChange: (value: string) => void;
   onLookupRefChange: (value: string) => void;
   onLookup: () => void;
+  headerExtra?: ReactNode;
 }) {
   const hasSelection = Boolean(selectedId);
   const isAgent = workspaceConfig.mode === "AGENT";
@@ -119,6 +122,7 @@ export function SupportInboxShell({
                 {ticketCount} unassigned
               </p>
             ) : null}
+            {headerExtra}
           </div>
         )}
         <div className="flex flex-wrap items-center gap-2">

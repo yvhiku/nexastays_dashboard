@@ -32,15 +32,22 @@ import {
   joinSupportAgentsWithWorkload,
   patchOperationalSignal,
   reopenTicket,
+  fetchSupportAgentMetrics,
+  type AgentMetrics,
   type SupportAgentWithWorkload,
 } from "@/lib/api/stays-admin";
+import { CannedRepliesManager } from "@/components/support/canned-replies-manager";
 import type {
   OperationalSignal,
   SupportAttentionItem,
   SupportOperationsOverview,
 } from "@/lib/types";
 import { formatNumber } from "@/lib/utils";
-import { signalChip } from "@/components/support/labels";
+import {
+  SUPPORT_REOPEN_REASONS,
+  reopenReasonLabel,
+  signalChip,
+} from "@/components/support/labels";
 
 const EMPTY_OVERVIEW: SupportOperationsOverview = {
   activeTickets: 0,
@@ -117,6 +124,10 @@ export default function SupportOperationsPage() {
     total: number;
   }>({ items: [], total: 0 });
   const [attentionBusy, setAttentionBusy] = useState<string | null>(null);
+  const [metricsById, setMetricsById] = useState<Map<string, AgentMetrics>>(
+    () => new Map(),
+  );
+  const [reopenReasons, setReopenReasons] = useState<Record<string, string>>({});
 
   const refresh = useCallback(() => {
     if (!workspaceConfig.canViewOperations) return;
@@ -128,10 +139,12 @@ export default function SupportOperationsPage() {
       })),
     );
     void loadAgents(async () => {
-      const [roster, workload] = await Promise.all([
+      const [roster, workload, metrics] = await Promise.all([
         fetchSupportAgents(),
         fetchSupportAgentWorkload(),
+        fetchSupportAgentMetrics().catch(() => [] as AgentMetrics[]),
       ]);
+      setMetricsById(new Map(metrics.map((row) => [row.agentId, row])));
       return joinSupportAgentsWithWorkload(roster, workload);
     });
     void loadSignals(() => fetchSupportSignals({ limit: 50 }));
@@ -326,13 +339,36 @@ export default function SupportOperationsPage() {
                       </Link>
                       {item.attentionReasons.includes("FOLLOW_UP_REQUIRED") && (
                         <div className="mt-2 flex flex-wrap gap-2 px-0 pb-1">
+                          <select
+                            className="h-8 rounded-md border border-nexa-line bg-white px-2 text-xs"
+                            aria-label="Reopen reason"
+                            value={
+                              reopenReasons[item.ticketId] ?? "CUSTOMER_UNRESOLVED"
+                            }
+                            onChange={(e) =>
+                              setReopenReasons((prev) => ({
+                                ...prev,
+                                [item.ticketId]: e.target.value,
+                              }))
+                            }
+                          >
+                            {SUPPORT_REOPEN_REASONS.map((reason) => (
+                              <option key={reason} value={reason}>
+                                {reopenReasonLabel(reason)}
+                              </option>
+                            ))}
+                          </select>
                           <Button
                             size="sm"
                             variant="outline"
                             disabled={attentionBusy === item.ticketId}
                             onClick={() => {
                               setAttentionBusy(item.ticketId);
-                              void reopenTicket(item.ticketId)
+                              void reopenTicket(
+                                item.ticketId,
+                                reopenReasons[item.ticketId] ??
+                                  "CUSTOMER_UNRESOLVED",
+                              )
                                 .then(() => {
                                   router.push(
                                     `/support?ticket=${encodeURIComponent(item.ticketId)}`,
@@ -427,9 +463,9 @@ export default function SupportOperationsPage() {
                       <div className="mt-3 grid grid-cols-4 gap-2 text-center">
                         {[
                           ["Assigned", agent.assigned],
-                          ["Open", agent.open],
                           ["In progress", agent.inProgress],
-                          ["Waiting", agent.waiting],
+                          ["Wait customer", agent.waitingForCustomer],
+                          ["Wait host", agent.waitingForHost],
                         ].map(([label, value]) => (
                           <div key={String(label)}>
                             <p className="text-sm font-semibold text-nexa-ink">{value}</p>
@@ -438,7 +474,25 @@ export default function SupportOperationsPage() {
                         ))}
                       </div>
                       <p className="mt-2 text-[11px] text-nexa-ink-4">
-                        At risk {agent.atRisk} · Breached {agent.breached}
+                        Escalated {agent.escalated} · At risk {agent.atRisk} · Breached {agent.breached}
+                        {(() => {
+                          const metrics = metricsById.get(agent.id);
+                          if (!metrics) return "";
+                          const solved =
+                            metrics.problemSolvedRate != null
+                              ? `${Math.round(metrics.problemSolvedRate * 100)}%`
+                              : "—";
+                          const rating =
+                            metrics.averageAgentRating != null
+                              ? `${metrics.averageAgentRating.toFixed(1)} / 5`
+                              : "—";
+                          const response =
+                            metrics.averageFirstResponseSeconds != null
+                              ? `${Math.round(metrics.averageFirstResponseSeconds / 60)} min`
+                              : "—";
+                          return ` · Last 30d closed ${metrics.closedCount} · Reopened ${metrics.reopenedCount} · Solved ${solved} · Agent ${rating} · ${metrics.reviewCount} reviews · Avg first response ${response}`;
+                        })()}
+                      </p>
                         {agent.oldestActiveTicketAt
                           ? ` · Oldest ${new Date(agent.oldestActiveTicketAt).toLocaleDateString("en-GB")}`
                           : ""}
@@ -519,6 +573,15 @@ export default function SupportOperationsPage() {
           </CardContent>
         </Card>
       )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Canned replies</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <CannedRepliesManager />
+        </CardContent>
+      </Card>
     </div>
   );
 }

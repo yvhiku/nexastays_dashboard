@@ -16,6 +16,7 @@ import {
   patchTicket,
   reopenTicket,
   putTicketPresence,
+  renderCannedReply,
   type SupportAgentWithWorkload,
 } from "@/lib/api/stays-admin";
 import { supportAgentDisplayName } from "@/lib/api/identity-admin";
@@ -88,14 +89,22 @@ export function TicketWorkspace({
   const ticketIdRef = useRef<string | null>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const sessionAssigneeRef = useRef<string | undefined>(undefined);
+  const handlingUntilRef = useRef(0);
+  const [resolutionType, setResolutionType] = useState<string>("");
   const fetchOpsContext = workspaceConfig.canFetchOpsContext;
 
   function ticketGone(err: unknown, ticketId: string) {
     if (err instanceof ApiError && err.status === 404) {
+      setReply("");
+      setMessages([]);
       onTicketGone?.(ticketId);
       return true;
     }
     return false;
+  }
+
+  function markHandling() {
+    handlingUntilRef.current = Date.now() + 60_000;
   }
 
   useEffect(() => {
@@ -114,6 +123,8 @@ export function TicketWorkspace({
       setAssignOpen(false);
       ticketIdRef.current = ticketId;
       sessionAssigneeRef.current = ticket?.assignee;
+      handlingUntilRef.current = 0;
+      setResolutionType("");
     }
     if (!ticket || ticket.id === "lookup") {
       const bookingKey = ticket?.bookingId || ticket?.bookingRef;
@@ -189,7 +200,10 @@ export function TicketWorkspace({
           if (!cancelled && ticketGone(err, ticket.id)) return;
           /* keep last activity */
         });
-      void putTicketPresence(ticket.id).catch(() => {
+      void putTicketPresence(
+        ticket.id,
+        Date.now() < handlingUntilRef.current,
+      ).catch(() => {
         /* best-effort telemetry — never clear the workspace */
       });
     };
@@ -234,6 +248,7 @@ export function TicketWorkspace({
     if (!workspaceConfig.canReply) return;
     if (!ticket || ticket.id === "lookup" || !reply.trim()) return;
     if ((detail ?? ticket).status === "CLOSED" || statusChanging) return;
+    markHandling();
     setSending(true);
     setStatusError(null);
     try {
@@ -264,8 +279,12 @@ export function TicketWorkspace({
     if (!ticket || ticket.id === "lookup") return;
     setStatusChanging(true);
     setStatusError(null);
+    markHandling();
     try {
-      const next = await patchTicket(ticket.id, { status });
+      const next = await patchTicket(ticket.id, {
+        status,
+        ...(resolutionType ? { resolutionType } : {}),
+      });
       setDetail((prev) =>
         prev
           ? {
@@ -288,13 +307,13 @@ export function TicketWorkspace({
     }
   }
 
-  async function reopen() {
+  async function reopen(reason: string) {
     if (!workspaceConfig.canReopenTickets) return;
     if (!ticket || ticket.id === "lookup") return;
     setStatusChanging(true);
     setStatusError(null);
     try {
-      const next = await reopenTicket(ticket.id);
+      const next = await reopenTicket(ticket.id, reason);
       setDetail((prev) =>
         prev
           ? {
@@ -430,6 +449,8 @@ export function TicketWorkspace({
   const otherViewers = (detail?.viewers ?? []).filter(
     (viewer) => viewer.viewerId && viewer.viewerId !== workspaceConfig.currentUserId,
   );
+  const handlers = otherViewers.filter((viewer) => viewer.activityState === "HANDLING");
+  const watchers = otherViewers.filter((viewer) => viewer.activityState !== "HANDLING");
   const reassignedWhileWorking =
     Boolean(sessionAssigneeRef.current) &&
     live.assignee !== sessionAssigneeRef.current;
@@ -483,7 +504,7 @@ export function TicketWorkspace({
         onStatusChange={(status) => void changeStatus(status)}
         onPriorityChange={(priority) => void changePriority(priority)}
         onOpenAssign={() => setAssignOpen(true)}
-        onReopen={() => void reopen()}
+        onReopen={(reason) => void reopen(reason)}
       />
       {selectedRefreshError && (
         <div className="flex shrink-0 items-center justify-between gap-2 border-b border-nexa-danger/20 bg-nexa-danger-soft px-3 py-1.5 text-xs text-nexa-danger">
@@ -498,15 +519,26 @@ export function TicketWorkspace({
           This ticket was reassigned while you were working on it.
         </p>
       )}
-      {otherViewers.length > 0 && (
-        <p className="shrink-0 border-b border-nexa-line bg-nexa-bg-2 px-3 py-1.5 text-xs text-nexa-ink-3">
-          {otherViewers
+      {handlers.length > 0 && (
+        <p className="shrink-0 border-b border-nexa-line bg-nexa-bg-2 px-3 py-1.5 text-xs text-nexa-ink">
+          {handlers
             .map((viewer) => {
               const agent = agents.find((row) => row.id === viewer.viewerId);
               return agent ? supportAgentDisplayName(agent) : "Another admin";
             })
             .join(", ")}{" "}
-          {otherViewers.length === 1 ? "is" : "are"} viewing this ticket
+          {handlers.length === 1 ? "is" : "are"} actively handling this ticket
+        </p>
+      )}
+      {watchers.length > 0 && (
+        <p className="shrink-0 border-b border-nexa-line bg-nexa-bg-2 px-3 py-1.5 text-xs text-nexa-ink-3">
+          {watchers
+            .map((viewer) => {
+              const agent = agents.find((row) => row.id === viewer.viewerId);
+              return agent ? supportAgentDisplayName(agent) : "Another admin";
+            })
+            .join(", ")}{" "}
+          {watchers.length === 1 ? "is" : "are"} viewing this ticket
         </p>
       )}
       {statusError && (
@@ -537,7 +569,22 @@ export function TicketWorkspace({
           <TicketComposer
             reply={reply}
             onReplyChange={setReply}
-            canned={canned}
+            canned={[...canned].sort((a, b) => {
+              const rank = (row: (typeof canned)[number]) => {
+                const exactCat = Boolean(row.category && row.category === live.category);
+                const exactLang = Boolean(
+                  row.language && row.language === live.requesterLanguage,
+                );
+                const generalCat = row.category == null;
+                const generalLang = row.language == null;
+                if (exactCat && exactLang) return 0;
+                if (exactCat && generalLang) return 1;
+                if (generalCat && exactLang) return 2;
+                if (generalCat && generalLang) return 3;
+                return 4;
+              };
+              return rank(a) - rank(b) || a.title.localeCompare(b.title);
+            })}
             disabled={composerDisabled}
             closed={isClosed}
             sending={sending}
@@ -547,6 +594,21 @@ export function TicketWorkspace({
             textareaRef={composerRef}
             onSend={() => void send()}
             onQuickStatus={(status) => void changeStatus(status)}
+            onComposerActivity={markHandling}
+            resolutionType={resolutionType || live.resolutionType || ""}
+            onResolutionTypeChange={setResolutionType}
+            onCannedSelect={(cannedReply) => {
+              if (!ticket || ticket.id === "lookup" || isClosed) return;
+              markHandling();
+              void renderCannedReply(cannedReply.id, ticket.id)
+                .then((rendered) => setReply(rendered.body))
+                .catch((err) => {
+                  if (ticketGone(err, ticket.id)) return;
+                  setStatusError(
+                    err instanceof Error ? err.message : "Failed to render saved reply",
+                  );
+                });
+            }}
           />
         </div>
         <aside className="hidden w-[280px] shrink-0 border-l border-nexa-line 2xl:block">
