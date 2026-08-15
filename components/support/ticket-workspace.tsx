@@ -37,6 +37,7 @@ import { TicketChat } from "./ticket-chat";
 import { TicketComposer } from "./ticket-composer";
 import { TicketDetails } from "./ticket-details";
 import { TicketDetailsSheet } from "./ticket-details-sheet";
+import { TicketCsatCard } from "./ticket-csat-card";
 import { TicketAssignmentPicker } from "./ticket-assignment-picker";
 import { statusMatchesFilter } from "./labels";
 
@@ -258,7 +259,17 @@ export function TicketWorkspace({
     setStatusError(null);
     try {
       const next = await patchTicket(ticket.id, { status });
-      setDetail((prev) => (prev ? { ...prev, ...next } : prev));
+      setDetail((prev) =>
+        prev
+          ? {
+              ...prev,
+              ...next,
+              csat: next.csat ?? prev.csat,
+              reviewAgentId: next.reviewAgentId ?? prev.reviewAgentId,
+              reviewAgentName: next.reviewAgentName ?? prev.reviewAgentName,
+            }
+          : prev,
+      );
       onTicketPatched?.(next);
       await onChanged();
       await refreshActivity();
@@ -275,7 +286,17 @@ export function TicketWorkspace({
     if (!ticket || ticket.id === "lookup") return;
     try {
       const next = await patchTicket(ticket.id, { priority });
-      setDetail((prev) => (prev ? { ...prev, ...next } : prev));
+      setDetail((prev) =>
+        prev
+          ? {
+              ...prev,
+              ...next,
+              csat: next.csat ?? prev.csat,
+              reviewAgentId: next.reviewAgentId ?? prev.reviewAgentId,
+              reviewAgentName: next.reviewAgentName ?? prev.reviewAgentName,
+            }
+          : prev,
+      );
       onTicketPatched?.(next);
       await onChanged();
       await refreshActivity();
@@ -298,7 +319,17 @@ export function TicketWorkspace({
     setStatusError(null);
     try {
       const next = await patchTicket(ticket.id, { assigned_admin_id: agentId });
-      setDetail((prev) => (prev ? { ...prev, ...next } : prev));
+      setDetail((prev) =>
+        prev
+          ? {
+              ...prev,
+              ...next,
+              csat: next.csat ?? prev.csat,
+              reviewAgentId: next.reviewAgentId ?? prev.reviewAgentId,
+              reviewAgentName: next.reviewAgentName ?? prev.reviewAgentName,
+            }
+          : prev,
+      );
       onTicketPatched?.(next);
       setAssignOpen(false);
       await onChanged();
@@ -426,6 +457,14 @@ export function TicketWorkspace({
       )}
       <div className="flex min-h-0 flex-1">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          {ticket.id !== "lookup" ? (
+            <TicketCsatCard
+              compact
+              status={live.status}
+              csat={live.csat}
+              reviewAgentName={live.reviewAgentName}
+            />
+          ) : null}
           <TicketChat
             ticketId={ticket.id}
             messages={messages}

@@ -45,12 +45,13 @@ export function filterNavEntries(
 ): NavEntry[] {
   if (!isStaffSession(session)) return [];
   if (!isSupportAgent(session)) return entries;
+  const agentHrefs = new Set(["/support", "/support/reviews"]);
   return entries
     .map((entry) => {
       if (entry.type === "link") {
-        return entry.item.href === "/support" ? entry : null;
+        return agentHrefs.has(entry.item.href) ? entry : null;
       }
-      const items = entry.group.items.filter((item) => item.href === "/support");
+      const items = entry.group.items.filter((item) => agentHrefs.has(item.href));
       if (items.length === 0) return null;
       return {
         type: "group" as const,

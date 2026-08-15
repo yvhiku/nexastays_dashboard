@@ -22,6 +22,7 @@ import type {
   TicketDetail,
   TicketMessage,
   TicketNote,
+  SupportCsatReview,
   OperationalSignal,
   RelatedSupportTicket,
   SupportOperationsOverview,
@@ -1329,7 +1330,16 @@ function mapTicket(row: Record<string, unknown>): Ticket {
           reason: String(routing.reason ?? ""),
         }
       : undefined,
-    csat: mapTicketCsat(asRecord(row.csat)),
+    csat:
+      row.csat === null ? null : mapTicketCsat(asRecord(row.csat)),
+    reviewAgentId: (row.review_agent_id ?? row.reviewAgentId) as
+      | string
+      | null
+      | undefined,
+    reviewAgentName: (row.review_agent_name ?? row.reviewAgentName) as
+      | string
+      | null
+      | undefined,
     operationalSignalTypes: Array.isArray(row.operational_signal_types)
       ? (row.operational_signal_types as string[])
       : Array.isArray(row.operationalSignalTypes)
@@ -1367,6 +1377,82 @@ export async function fetchTickets(query: TicketsQuery = {}): Promise<TicketsRes
     hasMore?: boolean;
   }>(`/admin/stays/support/tickets?${ticketsQueryString(query)}`);
   const items = (data.items ?? []).map(mapTicket);
+  const limit = Number(data.limit ?? query.limit ?? 50);
+  const offset = Number(data.offset ?? query.offset ?? 0);
+  const total = Number(data.total ?? items.length);
+  return {
+    items,
+    total,
+    limit,
+    offset,
+    hasMore: Boolean(data.hasMore ?? offset + items.length < total),
+  };
+}
+
+export type SupportReviewsQuery = {
+  limit?: number;
+  offset?: number;
+  problemSolved?: boolean;
+  maxRating?: number;
+  search?: string;
+};
+
+export type SupportReviewsResult = {
+  items: SupportCsatReview[];
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+};
+
+function mapSupportCsatReview(row: Record<string, unknown>): SupportCsatReview {
+  const agentRatingRaw = row.agent_rating ?? row.agentRating;
+  const solvedRaw = row.problem_solved ?? row.problemSolved;
+  const reviewAgentId = row.review_agent_id ?? row.reviewAgentId;
+  const reviewAgentName = row.review_agent_name ?? row.reviewAgentName;
+  return {
+    ticketId: String(row.ticket_id ?? row.ticketId ?? ""),
+    ticketNumber: String(row.ticket_number ?? row.ticketNumber ?? ""),
+    status: String(row.status ?? ""),
+    customerName: ((row.customer_name ?? row.customerName) as string | null) ?? null,
+    rating: Number(row.rating ?? 0),
+    agentRating:
+      agentRatingRaw == null || agentRatingRaw === ""
+        ? null
+        : Number(agentRatingRaw),
+    problemSolved:
+      solvedRaw == null || solvedRaw === "" ? null : Boolean(solvedRaw),
+    comment: (row.comment as string | null | undefined) ?? null,
+    submittedAt: String(row.submitted_at ?? row.submittedAt ?? ""),
+    reviewAgentId:
+      reviewAgentId == null || reviewAgentId === ""
+        ? null
+        : String(reviewAgentId),
+    reviewAgentName:
+      reviewAgentName == null || reviewAgentName === ""
+        ? null
+        : String(reviewAgentName),
+  };
+}
+
+export async function fetchSupportReviews(
+  query: SupportReviewsQuery = {},
+): Promise<SupportReviewsResult> {
+  const params = new URLSearchParams();
+  params.set("limit", String(Math.min(Math.max(query.limit ?? 50, 1), 100)));
+  params.set("offset", String(Math.max(query.offset ?? 0, 0)));
+  if (query.problemSolved === true) params.set("problemSolved", "true");
+  if (query.problemSolved === false) params.set("problemSolved", "false");
+  if (query.maxRating != null) params.set("maxRating", String(query.maxRating));
+  if (query.search?.trim()) params.set("search", query.search.trim());
+  const data = await apiFetch<{
+    items?: Record<string, unknown>[];
+    total?: number;
+    limit?: number;
+    offset?: number;
+    hasMore?: boolean;
+  }>(`/admin/stays/support/reviews?${params}`);
+  const items = (data.items ?? []).map(mapSupportCsatReview);
   const limit = Number(data.limit ?? query.limit ?? 50);
   const offset = Number(data.offset ?? query.offset ?? 0);
   const total = Number(data.total ?? items.length);

@@ -253,6 +253,8 @@ export interface Ticket {
   sla?: SupportSlaPayload;
   routingSuggestion?: { suggestedPriority: TicketPriority; reason: string };
   csat?: TicketCsat | null;
+  reviewAgentId?: string | null;
+  reviewAgentName?: string | null;
   operationalSignalTypes?: string[];
 }
 
@@ -276,6 +278,20 @@ export interface TicketCsat {
   agentRating?: number | null;
   agentId?: string | null;
   problemSolved?: boolean | null;
+}
+
+export interface SupportCsatReview {
+  ticketId: string;
+  ticketNumber: string;
+  status: string;
+  customerName: string | null;
+  rating: number;
+  agentRating: number | null;
+  problemSolved: boolean | null;
+  comment: string | null;
+  submittedAt: string;
+  reviewAgentId: string | null;
+  reviewAgentName: string | null;
 }
 
 export interface CannedReply {

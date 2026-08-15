@@ -5,6 +5,7 @@ import { RelativeTime } from "@/components/ui/relative-time";
 import { cn } from "@/lib/utils";
 import type { Ticket } from "@/lib/types";
 import { ticketSlaChip } from "./labels";
+import { formatCsatScore } from "./ticket-csat-card";
 
 export function TicketListItem({
   ticket,
@@ -49,6 +50,15 @@ export function TicketListItem({
           <span />
         )}
         <div className="flex shrink-0 items-center gap-1">
+          {ticket.status === "CLOSED" && ticket.csat ? (
+            <span className="rounded-full bg-nexa-primary-soft px-1.5 py-0.5 text-[10px] font-medium text-nexa-primary-dark">
+              {formatCsatScore(ticket.csat.rating)}★
+            </span>
+          ) : ticket.status === "CLOSED" ? (
+            <span className="rounded-full bg-nexa-bg-2 px-1.5 py-0.5 text-[10px] font-medium text-nexa-ink-3">
+              Awaiting review
+            </span>
+          ) : null}
           {ticket.unreadForSupport && (
             <span className="rounded-full bg-nexa-primary px-1.5 py-0.5 text-[10px] font-semibold text-white">
               New

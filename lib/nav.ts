@@ -95,6 +95,11 @@ export const navEntries: NavEntry[] = [
           badgeKey: "openTickets",
         },
         {
+          label: "Support reviews",
+          href: "/support/reviews",
+          icon: Star,
+        },
+        {
           label: "Operations",
           href: "/support/operations",
           icon: Gauge,
