@@ -5,7 +5,13 @@ import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/badge";
 import type { Ticket, TicketPriority, TicketStatus } from "@/lib/types";
 import type { SupportWorkspaceConfig } from "@/lib/support-workspace";
-import { supportAgentDisplayName, type SupportAgent } from "@/lib/api/identity-admin";
+import type { SupportAgent } from "@/lib/api/identity-admin";
+import { AgentAvatar } from "./agent-avatar";
+import {
+  assignedAgentDisplayName,
+  assignedAgentSubtitle,
+  resolveAssignedAgent,
+} from "./assigned-agent";
 
 const STATUS_ACTIONS: TicketStatus[] = [
   "IN_PROGRESS",
@@ -52,25 +58,16 @@ export function TicketHeader({
     Boolean(ticket.assignee) &&
     Boolean(workspaceConfig.currentUserId) &&
     ticket.assignee === workspaceConfig.currentUserId;
-  const assignedAgent = ticket.assignee
-    ? agents.find((agent) => agent.id === ticket.assignee)
-    : undefined;
   const canAssign =
     workspaceConfig.canAssignTickets ||
     workspaceConfig.canReassignTickets ||
     workspaceConfig.canUnassignTickets;
-
-  let assignmentLabel = "Unassigned";
-  let assignmentAction: string | null = "Assign";
-  if (ticket.assignee) {
-    if (assignedAgent && assignedAgent.status === "ACTIVE") {
-      assignmentLabel = `Assigned to ${supportAgentDisplayName(assignedAgent)}`;
-      assignmentAction = "Change";
-    } else {
-      assignmentLabel = "Assigned to unavailable agent";
-      assignmentAction = "Change";
-    }
-  }
+  const assignment = resolveAssignedAgent(ticket.assignee, agents);
+  const agentName = assignedAgentDisplayName(assignment);
+  const subtitle = assignedAgentSubtitle(assignment, ticket.status);
+  const assignmentAction = ticket.assignee ? "Change" : "Assign";
+  const showAvatar =
+    assignment.kind !== "unassigned" && assignment.agent != null;
 
   return (
     <div className="shrink-0 border-b border-nexa-line px-3 py-2.5">
@@ -102,7 +99,7 @@ export function TicketHeader({
         )}
       </div>
       {!isLookup && (
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <div className="mt-2 flex flex-wrap items-center gap-2">
           <select
             className={selectClass}
             value={ticket.status}
@@ -131,14 +128,26 @@ export function TicketHeader({
             </select>
           )}
           {canAssign ? (
-            <>
-              <p className="text-xs text-nexa-ink-3">{assignmentLabel}</p>
-              {assignmentAction && (
-                <Button size="sm" variant="outline" onClick={onOpenAssign}>
-                  {assignmentAction}
-                </Button>
+            <div className="flex min-w-0 items-center gap-2">
+              {showAvatar && assignment.agent && (
+                <AgentAvatar
+                  name={agentName}
+                  photoUrl={assignment.agent.profilePhotoUrl}
+                />
               )}
-            </>
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold uppercase text-nexa-ink-4">
+                  Assigned support agent
+                </p>
+                <p className="truncate text-sm font-medium text-nexa-ink">{agentName}</p>
+                {subtitle && (
+                  <p className="truncate text-xs text-nexa-ink-3">{subtitle}</p>
+                )}
+              </div>
+              <Button size="sm" variant="outline" onClick={onOpenAssign}>
+                {assignmentAction}
+              </Button>
+            </div>
           ) : assignedToYou ? (
             <p className="text-xs text-nexa-ink-3">Assigned to you</p>
           ) : null}

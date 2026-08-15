@@ -375,6 +375,7 @@ export function TicketWorkspace({
       noteDraft={noteDraft}
       noteSaving={noteSaving}
       activity={activity}
+      agents={agents}
       agentNames={Object.fromEntries(
         agents.map((agent) => [agent.id, supportAgentDisplayName(agent)]),
       )}

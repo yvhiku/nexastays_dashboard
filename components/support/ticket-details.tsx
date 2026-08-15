@@ -16,6 +16,13 @@ import type {
   TicketNote,
 } from "@/lib/types";
 import type { SupportWorkspaceConfig } from "@/lib/support-workspace";
+import type { SupportAgent } from "@/lib/api/identity-admin";
+import { AgentAvatar } from "./agent-avatar";
+import {
+  assignedAgentDisplayName,
+  assignedAgentSubtitle,
+  resolveAssignedAgent,
+} from "./assigned-agent";
 import {
   formatActivityAction,
   relationshipLabel,
@@ -33,6 +40,7 @@ export function TicketDetails({
   noteDraft,
   noteSaving,
   activity,
+  agents = [],
   agentNames,
   onNoteDraftChange,
   onSaveNote,
@@ -47,6 +55,7 @@ export function TicketDetails({
   noteDraft: string;
   noteSaving: boolean;
   activity: SupportActivityItem[];
+  agents?: SupportAgent[];
   agentNames?: Record<string, string>;
   onNoteDraftChange: (value: string) => void;
   onSaveNote: () => void;
@@ -84,6 +93,9 @@ export function TicketDetails({
   const csat = live.csat ?? detail?.csat;
   const hasListing = Boolean(listingId || listingTitle);
   const hasBooking = Boolean(booking || live.bookingRef || live.bookingId);
+  const assignment = resolveAssignedAgent(live.assignee, agents);
+  const agentName = assignedAgentDisplayName(assignment);
+  const agentSubtitle = assignedAgentSubtitle(assignment, live.status);
   const opsHref = (kind: "booking" | "listing" | "host" | "report" | "safety", id?: string | null) =>
     workspaceConfig.canNavigateOpsContext ? ticketContextHref(kind, id) : null;
 
@@ -97,6 +109,29 @@ export function TicketDetails({
         {reporter?.phone && <ContextTel label="Phone" value={reporter.phone} />}
         <ContextBlock label="Party" value={live.party} />
       </Section>
+
+      {!isLookup && (
+        <Section title="Support agent">
+          {assignment.kind === "unassigned" ? (
+            <p className="mt-2 text-sm font-medium text-nexa-ink">Unassigned</p>
+          ) : (
+            <div className="mt-2 flex items-center gap-3">
+              {assignment.agent && (
+                <AgentAvatar
+                  name={agentName}
+                  photoUrl={assignment.agent.profilePhotoUrl}
+                />
+              )}
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-nexa-ink">{agentName}</p>
+                {agentSubtitle && (
+                  <p className="truncate text-xs text-nexa-ink-3">{agentSubtitle}</p>
+                )}
+              </div>
+            </div>
+          )}
+        </Section>
+      )}
 
       <Section title="Reported listing / host">
         {hasListing ? (

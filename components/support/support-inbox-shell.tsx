@@ -11,7 +11,7 @@ import type {
   SupportWorkspaceConfig,
 } from "@/lib/support-workspace";
 import type { SupportAgentWithWorkload } from "@/lib/api/stays-admin";
-import { supportAgentDisplayName } from "@/lib/api/identity-admin";
+import { assignedAgentListLabel, resolveAssignedAgent } from "./assigned-agent";
 import { TicketList } from "./ticket-list";
 import { TicketWorkspace } from "./ticket-workspace";
 
@@ -196,14 +196,10 @@ export function SupportInboxShell({
             assigneeLabelFor={
               isAgent
                 ? undefined
-                : (ticket) => {
-                    if (!ticket.assignee) return "Unassigned";
-                    const agent = agents.find((row) => row.id === ticket.assignee);
-                    if (agent && agent.status === "ACTIVE") {
-                      return supportAgentDisplayName(agent);
-                    }
-                    return "Unavailable agent";
-                  }
+                : (ticket) =>
+                    assignedAgentListLabel(
+                      resolveAssignedAgent(ticket.assignee, agents),
+                    )
             }
             onSelect={onSelect}
             onPrevious={onPrevious}

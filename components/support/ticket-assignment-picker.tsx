@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -9,26 +8,7 @@ import { DetailSheet } from "@/components/ui/detail-sheet";
 import { supportAgentDisplayName } from "@/lib/api/identity-admin";
 import type { SupportAgentWithWorkload } from "@/lib/api/stays-admin";
 import type { Ticket } from "@/lib/types";
-
-function AgentAvatar({
-  name,
-  photoUrl,
-}: {
-  name: string;
-  photoUrl: string | null;
-}) {
-  if (photoUrl) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={photoUrl}
-        alt=""
-        className="h-8 w-8 shrink-0 rounded-full object-cover"
-      />
-    );
-  }
-  return <Avatar name={name} size="sm" />;
-}
+import { AgentAvatar } from "./agent-avatar";
 
 export function TicketAssignmentPicker({
   open,
