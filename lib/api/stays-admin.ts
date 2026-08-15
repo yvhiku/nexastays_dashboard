@@ -1266,9 +1266,25 @@ function mapSla(row: unknown): SupportSlaPayload | undefined {
   return { firstResponse, resolution };
 }
 
+function mapTicketCsat(row: Record<string, unknown> | null | undefined): TicketCsat | undefined {
+  const csatRow = asRecord(row);
+  if (!csatRow) return undefined;
+  const agentRatingRaw = csatRow.agent_rating ?? csatRow.agentRating;
+  const agentIdRaw = csatRow.agent_id ?? csatRow.agentId;
+  return {
+    rating: Number(csatRow.rating ?? 0),
+    comment: (csatRow.comment as string | null | undefined) ?? null,
+    submittedAt: String(csatRow.submitted_at ?? csatRow.submittedAt ?? ""),
+    agentRating:
+      agentRatingRaw == null || agentRatingRaw === ""
+        ? null
+        : Number(agentRatingRaw),
+    agentId: agentIdRaw == null || agentIdRaw === "" ? null : String(agentIdRaw),
+  };
+}
+
 function mapTicket(row: Record<string, unknown>): Ticket {
   const routing = asRecord(row.routing_suggestion ?? row.routingSuggestion);
-  const csatRow = asRecord(row.csat);
   return {
     id: String(row.id ?? ""),
     ticketNumber: String(row.ticket_number ?? row.ticketNumber ?? row.id ?? ""),
@@ -1308,13 +1324,7 @@ function mapTicket(row: Record<string, unknown>): Ticket {
           reason: String(routing.reason ?? ""),
         }
       : undefined,
-    csat: csatRow
-      ? {
-          rating: Number(csatRow.rating ?? 0),
-          comment: (csatRow.comment as string | null | undefined) ?? null,
-          submittedAt: String(csatRow.submitted_at ?? csatRow.submittedAt ?? ""),
-        }
-      : undefined,
+    csat: mapTicketCsat(asRecord(row.csat)),
     operationalSignalTypes: Array.isArray(row.operational_signal_types)
       ? (row.operational_signal_types as string[])
       : Array.isArray(row.operationalSignalTypes)
@@ -1430,11 +1440,7 @@ export async function fetchTicket(ticketId: string): Promise<TicketDetail> {
   );
   const csatRow = asRecord(row.csat);
   const csat: TicketCsat | null | undefined = csatRow
-    ? {
-        rating: Number(csatRow.rating ?? 0),
-        comment: (csatRow.comment as string | null | undefined) ?? null,
-        submittedAt: String(csatRow.submitted_at ?? csatRow.submittedAt ?? ""),
-      }
+    ? mapTicketCsat(csatRow)
     : row.csat === null
       ? null
       : undefined;
@@ -1533,6 +1539,8 @@ export type SupportAgentWorkload = {
   atRisk: number;
   breached: number;
   oldestActiveTicketAt: string | null;
+  reviewCount: number;
+  averageAgentRating: number | null;
 };
 
 export type SupportAgentWithWorkload = SupportAgent & {
@@ -1543,6 +1551,8 @@ export type SupportAgentWithWorkload = SupportAgent & {
   atRisk: number;
   breached: number;
   oldestActiveTicketAt: string | null;
+  reviewCount: number;
+  averageAgentRating: number | null;
 };
 
 export function joinSupportAgentsWithWorkload(
@@ -1561,6 +1571,8 @@ export function joinSupportAgentsWithWorkload(
       atRisk: row?.atRisk ?? 0,
       breached: row?.breached ?? 0,
       oldestActiveTicketAt: row?.oldestActiveTicketAt ?? null,
+      reviewCount: row?.reviewCount ?? 0,
+      averageAgentRating: row?.averageAgentRating ?? null,
     };
   });
 }
@@ -1580,6 +1592,10 @@ export async function fetchSupportAgentWorkload(): Promise<SupportAgentWorkload[
       breached?: number;
       oldestActiveTicketAt?: string | null;
       oldest_active_ticket_at?: string | null;
+      reviewCount?: number;
+      review_count?: number;
+      averageAgentRating?: number | null;
+      average_agent_rating?: number | null;
     }>;
   }>("/admin/stays/support/agents/workload");
   return (data.items ?? []).map((row) => ({
@@ -1593,6 +1609,13 @@ export async function fetchSupportAgentWorkload(): Promise<SupportAgentWorkload[
     oldestActiveTicketAt: (row.oldestActiveTicketAt ??
       row.oldest_active_ticket_at ??
       null) as string | null,
+    reviewCount: Number(row.reviewCount ?? row.review_count ?? 0),
+    averageAgentRating:
+      row.averageAgentRating != null
+        ? Number(row.averageAgentRating)
+        : row.average_agent_rating != null
+          ? Number(row.average_agent_rating)
+          : null,
   }));
 }
 

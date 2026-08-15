@@ -387,6 +387,11 @@ export default function SupportOperationsPage() {
                         {agent.oldestActiveTicketAt
                           ? ` · Oldest ${new Date(agent.oldestActiveTicketAt).toLocaleDateString("en-GB")}`
                           : ""}
+                        {` · Avg rating ${
+                          agent.averageAgentRating != null
+                            ? agent.averageAgentRating.toFixed(1)
+                            : "—"
+                        } · ${agent.reviewCount} review${agent.reviewCount === 1 ? "" : "s"}`}
                       </p>
                     </Link>
                   );

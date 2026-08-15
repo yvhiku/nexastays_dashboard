@@ -273,6 +273,8 @@ export interface TicketCsat {
   rating: number;
   comment?: string | null;
   submittedAt: string;
+  agentRating?: number | null;
+  agentId?: string | null;
 }
 
 export interface CannedReply {

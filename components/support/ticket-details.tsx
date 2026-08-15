@@ -316,7 +316,8 @@ export function TicketDetails({
       {csat && (
         <Section title="CSAT">
           <p className="mt-2 text-sm text-nexa-ink-3">
-            Customer satisfaction: {csat.rating}/5
+            Overall: {csat.rating}/5
+            {csat.agentRating != null ? ` · Agent: ${csat.agentRating}/5` : ""}
             {csat.comment ? ` — “${csat.comment}”` : ""}
           </p>
         </Section>
