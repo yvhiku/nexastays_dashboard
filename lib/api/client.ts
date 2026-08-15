@@ -44,6 +44,7 @@ export async function apiFetch<T>(
     Accept: "application/json",
     // Refresh cookie only — access authorization is Bearer (PROD-SEC-001).
     "X-Auth-Transport": "cookie",
+    "X-Nexa-Client": "dashboard",
     ...(options.headers as Record<string, string>),
   };
   if (options.body && !headers["Content-Type"]) {

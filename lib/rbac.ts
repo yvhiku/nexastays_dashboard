@@ -19,13 +19,17 @@ export function isSuperAdmin(session: AdminSession | null | undefined): boolean 
   return sessionRoles(session).includes("ADMIN");
 }
 
+export function isStaffSession(session: AdminSession | null | undefined): boolean {
+  return isSuperAdmin(session) || isSupportAgent(session);
+}
+
 export function canAccessDashboardPath(
   session: AdminSession | null | undefined,
   pathname: string,
 ): boolean {
   if (!session) return pathname === "/login";
+  if (!isStaffSession(session)) return pathname === "/login";
   if (isSuperAdmin(session)) return true;
-  if (!isSupportAgent(session)) return true;
   return AGENT_PATHS.some((path) => pathname === path);
 }
 
@@ -39,6 +43,7 @@ export function filterNavEntries(
   entries: NavEntry[],
   session: AdminSession | null | undefined,
 ): NavEntry[] {
+  if (!isStaffSession(session)) return [];
   if (!isSupportAgent(session)) return entries;
   return entries
     .map((entry) => {

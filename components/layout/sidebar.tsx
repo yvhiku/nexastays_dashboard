@@ -90,7 +90,7 @@ export function Sidebar() {
 
   const displayName = session?.name?.trim() || (agent ? "Support" : "Admin");
   const displayEmail = session?.email?.trim() || session?.userId?.slice(0, 8) || "Signed in";
-  const displayRole = session?.staffRole || session?.roles?.[0] || session?.role || "ADMIN";
+  const displayRole = session?.staffRole || session?.roles?.[0] || session?.role || "Staff";
   const homeHref = getDefaultDashboardRoute(session);
 
   function isGroupOpen(group: NavGroup) {

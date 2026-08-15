@@ -41,6 +41,12 @@ function mapSession(raw: {
       ? [user.role]
       : [];
   const staffRole = user?.staffRole || user?.staff_role || roles[0];
+  const isStaff =
+    roles.includes("ADMIN") ||
+    roles.includes("SUPPORT_AGENT") ||
+    staffRole === "ADMIN" ||
+    staffRole === "SUPPORT_AGENT";
+  if (!isStaff) return null;
   return {
     authenticated: true,
     userId: user?.userId,
