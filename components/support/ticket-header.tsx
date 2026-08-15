@@ -111,7 +111,10 @@ export function TicketHeader({
             aria-label="Ticket status"
             onChange={(e) => onStatusChange(e.target.value as TicketStatus)}
           >
-            {statusOptions.map((s) => (
+            {(STATUS_ACTIONS.includes(ticket.status)
+              ? STATUS_ACTIONS
+              : [ticket.status, ...STATUS_ACTIONS]
+            ).map((s) => (
               <option key={s} value={s}>
                 {s.replace(/_/g, " ")}
               </option>
