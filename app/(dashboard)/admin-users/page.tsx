@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { UserCog } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,6 +19,8 @@ import {
 } from "@/lib/api/identity-admin";
 import {
   fetchSupportAgentWorkload,
+  fetchSupportAgentSkills,
+  putSupportAgentSkills,
   type SupportAgentWorkload,
 } from "@/lib/api/stays-admin";
 import { useAsyncList } from "@/lib/hooks/use-async-data";
@@ -386,6 +388,109 @@ export default function AdminUsersPage() {
   );
 }
 
+function AgentSkillsEditor({
+  agentId,
+  disabled,
+}: {
+  agentId: string;
+  disabled: boolean;
+}) {
+  const languages = ["ar", "fr", "en"] as const;
+  const categories = [
+    "BOOKING",
+    "PAYMENT",
+    "REFUND",
+    "CANCELLATION",
+    "HOST",
+    "GUEST",
+    "LISTING",
+    "KYC",
+    "TECHNICAL",
+    "FRAUD",
+    "OTHER",
+  ] as const;
+  const [selectedLangs, setSelectedLangs] = useState<string[]>([]);
+  const [selectedCats, setSelectedCats] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchSupportAgentSkills(agentId)
+      .then((row) => {
+        if (cancelled) return;
+        setSelectedLangs(row.languages);
+        setSelectedCats(row.categories);
+      })
+      .catch(() => {
+        /* keep empty generalist */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [agentId]);
+
+  async function persist(nextLangs: string[], nextCats: string[]) {
+    setSaving(true);
+    try {
+      await putSupportAgentSkills(agentId, {
+        languages: nextLangs,
+        categories: nextCats,
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function toggle(list: string[], value: string) {
+    return list.includes(value) ? list.filter((item) => item !== value) : [...list, value];
+  }
+
+  return (
+    <div className="rounded-md border border-nexa-line bg-nexa-bg-2 p-3">
+      <p className="text-[11px] font-semibold uppercase text-nexa-ink-4">
+        Routing skills
+      </p>
+      <p className="mt-1 text-[11px] text-nexa-ink-4">
+        Empty lists mean generalist fallback only — they do not match every ticket.
+      </p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {languages.map((lang) => (
+          <label key={lang} className="flex items-center gap-1 text-xs text-nexa-ink">
+            <input
+              type="checkbox"
+              disabled={disabled || saving}
+              checked={selectedLangs.includes(lang)}
+              onChange={() => {
+                const next = toggle(selectedLangs, lang);
+                setSelectedLangs(next);
+                void persist(next, selectedCats);
+              }}
+            />
+            {lang}
+          </label>
+        ))}
+      </div>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {categories.map((category) => (
+          <label key={category} className="flex items-center gap-1 text-xs text-nexa-ink">
+            <input
+              type="checkbox"
+              disabled={disabled || saving}
+              checked={selectedCats.includes(category)}
+              onChange={() => {
+                const next = toggle(selectedCats, category);
+                setSelectedCats(next);
+                void persist(selectedLangs, next);
+              }}
+            />
+            {category}
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function StaffGroup({
   title,
   empty,
@@ -449,6 +554,9 @@ function StaffGroup({
                   </div>
                 </div>
                 {showWorkload ? <WorkloadStats row={workloadById?.get(user.id)} /> : null}
+                {user.staffRole === "SUPPORT_AGENT" ? (
+                  <AgentSkillsEditor agentId={user.id} disabled={busy} />
+                ) : null}
               </div>
             );
           })}

@@ -31,6 +31,7 @@ export type SupportWorkspaceConfig = {
   canFetchOpsContext: boolean;
   canReply: boolean;
   canChangeStatus: boolean;
+  canReopenTickets: boolean;
   canCreateNotes: boolean;
   canViewSignals: boolean;
   canViewOperations: boolean;
@@ -94,6 +95,7 @@ export function getSupportWorkspaceConfig(
       canFetchOpsContext: false,
       canReply: true,
       canChangeStatus: true,
+      canReopenTickets: false,
       canCreateNotes: true,
       canViewSignals: true,
       canViewOperations: false,
@@ -130,6 +132,7 @@ export function getSupportWorkspaceConfig(
     canFetchOpsContext: true,
     canReply: true,
     canChangeStatus: true,
+    canReopenTickets: true,
     canCreateNotes: true,
     canViewSignals: true,
     canViewOperations: true,

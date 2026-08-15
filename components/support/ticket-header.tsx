@@ -38,6 +38,7 @@ export function TicketHeader({
   onStatusChange,
   onPriorityChange,
   onOpenAssign,
+  onReopen,
 }: {
   workspaceConfig: SupportWorkspaceConfig;
   ticket: Ticket;
@@ -52,6 +53,7 @@ export function TicketHeader({
   onStatusChange: (status: TicketStatus) => void;
   onPriorityChange: (priority: TicketPriority) => void;
   onOpenAssign: () => void;
+  onReopen?: () => void;
 }) {
   const statusOptions = Array.from(new Set([ticket.status, ...STATUS_ACTIONS]));
   const assignedToYou =
@@ -151,6 +153,16 @@ export function TicketHeader({
           ) : assignedToYou ? (
             <p className="text-xs text-nexa-ink-3">Assigned to you</p>
           ) : null}
+          {ticket.status === "CLOSED" && workspaceConfig.canReopenTickets && onReopen && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={statusChanging}
+              onClick={onReopen}
+            >
+              Reopen
+            </Button>
+          )}
         </div>
       )}
       {filterMismatchNote && (

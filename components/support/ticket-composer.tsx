@@ -3,7 +3,7 @@
 import type { KeyboardEvent, RefObject } from "react";
 import { Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { CannedReply } from "@/lib/types";
+import type { CannedReply, TicketStatus } from "@/lib/types";
 
 export function TicketComposer({
   reply,
@@ -12,8 +12,12 @@ export function TicketComposer({
   disabled,
   closed,
   sending,
+  statusChanging,
+  canChangeStatus,
+  currentStatus,
   textareaRef,
   onSend,
+  onQuickStatus,
 }: {
   reply: string;
   onReplyChange: (value: string) => void;
@@ -21,8 +25,12 @@ export function TicketComposer({
   disabled: boolean;
   closed: boolean;
   sending: boolean;
+  statusChanging?: boolean;
+  canChangeStatus?: boolean;
+  currentStatus?: TicketStatus;
   textareaRef?: RefObject<HTMLTextAreaElement | null>;
   onSend: () => void;
+  onQuickStatus?: (status: TicketStatus) => void;
 }) {
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
@@ -32,8 +40,40 @@ export function TicketComposer({
     onSend();
   }
 
+  const showQuick =
+    Boolean(canChangeStatus && onQuickStatus) && !closed && currentStatus !== "CLOSED";
+  const quickDisabled = Boolean(disabled || statusChanging);
+
   return (
     <div className="shrink-0 border-t border-nexa-line bg-white p-3">
+      {showQuick && (
+        <div className="mb-2 flex flex-wrap gap-1">
+          <Button
+            size="sm"
+            variant={currentStatus === "WAITING_FOR_CUSTOMER" ? "secondary" : "outline"}
+            disabled={quickDisabled}
+            onClick={() => onQuickStatus?.("WAITING_FOR_CUSTOMER")}
+          >
+            Waiting
+          </Button>
+          <Button
+            size="sm"
+            variant={currentStatus === "RESOLVED" ? "secondary" : "outline"}
+            disabled={quickDisabled}
+            onClick={() => onQuickStatus?.("RESOLVED")}
+          >
+            Resolved
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={quickDisabled}
+            onClick={() => onQuickStatus?.("CLOSED")}
+          >
+            Close
+          </Button>
+        </div>
+      )}
       {canned.length > 0 && (
         <select
           className="mb-2 h-8 max-w-full rounded-md border border-nexa-line bg-white px-2 text-xs"

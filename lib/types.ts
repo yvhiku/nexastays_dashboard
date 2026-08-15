@@ -425,6 +425,7 @@ export interface TicketDetail extends Ticket {
   safetyIssue?: TicketLinkedSafetyIssue | null;
   signals?: OperationalSignal[];
   relatedTickets?: RelatedSupportTicket[];
+  viewers?: TicketViewer[];
 }
 
 export type OperationalSignalType =
@@ -434,7 +435,8 @@ export type OperationalSignalType =
   | "SLA_ATTENTION"
   | "SLA_BREACHED"
   | "UNASSIGNED_HIGH_PRIORITY"
-  | "LOW_CSAT_PATTERN";
+  | "LOW_CSAT_PATTERN"
+  | "FOLLOW_UP_REQUIRED";
 
 export interface OperationalSignal {
   id: string;
@@ -488,6 +490,16 @@ export interface SupportAttentionItem {
   assignedAdminId: string | null;
   createdAt: string;
   attentionReasons: string[];
+  followUpSignalId?: string | null;
+  overallRating?: number | null;
+  agentRating?: number | null;
+  problemSolved?: boolean | null;
+}
+
+export interface TicketViewer {
+  viewerId: string;
+  lastSeenAt: string;
+  expiresAt: string;
 }
 
 export interface SupportAttentionResult {

@@ -14,6 +14,8 @@ import {
   fetchTicketNotes,
   sendTicketMessage,
   patchTicket,
+  reopenTicket,
+  putTicketPresence,
   type SupportAgentWithWorkload,
 } from "@/lib/api/stays-admin";
 import { supportAgentDisplayName } from "@/lib/api/identity-admin";
@@ -85,6 +87,7 @@ export function TicketWorkspace({
   const [pinToLatest, setPinToLatest] = useState(0);
   const ticketIdRef = useRef<string | null>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const sessionAssigneeRef = useRef<string | undefined>(undefined);
   const fetchOpsContext = workspaceConfig.canFetchOpsContext;
 
   function ticketGone(err: unknown, ticketId: string) {
@@ -110,6 +113,7 @@ export function TicketWorkspace({
       setDetailsOpen(false);
       setAssignOpen(false);
       ticketIdRef.current = ticketId;
+      sessionAssigneeRef.current = ticket?.assignee;
     }
     if (!ticket || ticket.id === "lookup") {
       const bookingKey = ticket?.bookingId || ticket?.bookingRef;
@@ -185,6 +189,9 @@ export function TicketWorkspace({
           if (!cancelled && ticketGone(err, ticket.id)) return;
           /* keep last activity */
         });
+      void putTicketPresence(ticket.id).catch(() => {
+        /* best-effort telemetry — never clear the workspace */
+      });
     };
     load();
     const interval = setInterval(load, 8000);
@@ -276,6 +283,35 @@ export function TicketWorkspace({
     } catch (err) {
       if (ticketGone(err, ticket.id)) return;
       setStatusError(err instanceof Error ? err.message : "Failed to update status");
+    } finally {
+      setStatusChanging(false);
+    }
+  }
+
+  async function reopen() {
+    if (!workspaceConfig.canReopenTickets) return;
+    if (!ticket || ticket.id === "lookup") return;
+    setStatusChanging(true);
+    setStatusError(null);
+    try {
+      const next = await reopenTicket(ticket.id);
+      setDetail((prev) =>
+        prev
+          ? {
+              ...prev,
+              ...next,
+              csat: prev.csat,
+              reviewAgentId: prev.reviewAgentId,
+              reviewAgentName: prev.reviewAgentName,
+            }
+          : prev,
+      );
+      onTicketPatched?.(next);
+      await onChanged();
+      await refreshActivity();
+    } catch (err) {
+      if (ticketGone(err, ticket.id)) return;
+      setStatusError(err instanceof Error ? err.message : "Failed to reopen");
     } finally {
       setStatusChanging(false);
     }
@@ -391,6 +427,12 @@ export function TicketWorkspace({
     statusChanging ||
     sending ||
     !workspaceConfig.canReply;
+  const otherViewers = (detail?.viewers ?? []).filter(
+    (viewer) => viewer.viewerId && viewer.viewerId !== workspaceConfig.currentUserId,
+  );
+  const reassignedWhileWorking =
+    Boolean(sessionAssigneeRef.current) &&
+    live.assignee !== sessionAssigneeRef.current;
   const filterMismatchNote =
     ticket.id !== "lookup" && !statusMatchesFilter(live.status, filter)
       ? `This ticket is now ${live.status.replace(/_/g, " ").toLowerCase()}`
@@ -441,6 +483,7 @@ export function TicketWorkspace({
         onStatusChange={(status) => void changeStatus(status)}
         onPriorityChange={(priority) => void changePriority(priority)}
         onOpenAssign={() => setAssignOpen(true)}
+        onReopen={() => void reopen()}
       />
       {selectedRefreshError && (
         <div className="flex shrink-0 items-center justify-between gap-2 border-b border-nexa-danger/20 bg-nexa-danger-soft px-3 py-1.5 text-xs text-nexa-danger">
@@ -449,6 +492,22 @@ export function TicketWorkspace({
             Retry
           </Button>
         </div>
+      )}
+      {reassignedWhileWorking && (
+        <p className="shrink-0 border-b border-nexa-line bg-nexa-bg-2 px-3 py-1.5 text-xs text-nexa-ink">
+          This ticket was reassigned while you were working on it.
+        </p>
+      )}
+      {otherViewers.length > 0 && (
+        <p className="shrink-0 border-b border-nexa-line bg-nexa-bg-2 px-3 py-1.5 text-xs text-nexa-ink-3">
+          {otherViewers
+            .map((viewer) => {
+              const agent = agents.find((row) => row.id === viewer.viewerId);
+              return agent ? supportAgentDisplayName(agent) : "Another admin";
+            })
+            .join(", ")}{" "}
+          {otherViewers.length === 1 ? "is" : "are"} viewing this ticket
+        </p>
       )}
       {statusError && (
         <p className="shrink-0 border-b border-nexa-danger/20 bg-nexa-danger-soft px-3 py-1.5 text-xs text-nexa-danger">
@@ -482,8 +541,12 @@ export function TicketWorkspace({
             disabled={composerDisabled}
             closed={isClosed}
             sending={sending}
+            statusChanging={statusChanging}
+            canChangeStatus={workspaceConfig.canChangeStatus}
+            currentStatus={live.status}
             textareaRef={composerRef}
             onSend={() => void send()}
+            onQuickStatus={(status) => void changeStatus(status)}
           />
         </div>
         <aside className="hidden w-[280px] shrink-0 border-l border-nexa-line 2xl:block">

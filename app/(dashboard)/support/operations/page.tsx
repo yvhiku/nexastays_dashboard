@@ -31,6 +31,7 @@ import {
   fetchSupportSignals,
   joinSupportAgentsWithWorkload,
   patchOperationalSignal,
+  reopenTicket,
   type SupportAgentWithWorkload,
 } from "@/lib/api/stays-admin";
 import type {
@@ -66,6 +67,7 @@ function reasonLabel(reason: string) {
   if (reason === "URGENT") return "Urgent";
   if (reason === "UNASSIGNED") return "Unassigned";
   if (reason === "ACTIVE_SIGNAL") return "Active signal";
+  if (reason === "FOLLOW_UP_REQUIRED") return "Customer says issue was not solved";
   return reason.replace(/_/g, " ");
 }
 
@@ -114,6 +116,7 @@ export default function SupportOperationsPage() {
     items: OperationalSignal[];
     total: number;
   }>({ items: [], total: 0 });
+  const [attentionBusy, setAttentionBusy] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
     if (!workspaceConfig.canViewOperations) return;
@@ -282,33 +285,85 @@ export default function SupportOperationsPage() {
               <ul className="divide-y divide-nexa-line">
                 {attention.data.items.map((item) => (
                   <li key={item.ticketId} className="py-3">
-                    <Link
-                      href={`/support?ticket=${encodeURIComponent(item.ticketId)}`}
-                      className="block rounded-md hover:bg-nexa-bg-2"
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium text-nexa-ink">
-                            {item.ticketNumber} · {item.subject}
-                          </p>
-                          <p className="mt-0.5 text-xs text-nexa-ink-4">
-                            {item.status.replace(/_/g, " ")} · {item.priority} ·{" "}
-                            {agentName(item.assignedAdminId)}
-                          </p>
+                    <div className="rounded-md hover:bg-nexa-bg-2">
+                      <Link
+                        href={`/support?ticket=${encodeURIComponent(item.ticketId)}`}
+                        className="block"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-nexa-ink">
+                              {item.ticketNumber} · {item.subject}
+                            </p>
+                            <p className="mt-0.5 text-xs text-nexa-ink-4">
+                              {item.status.replace(/_/g, " ")} · {item.priority} ·{" "}
+                              {agentName(item.assignedAdminId)}
+                            </p>
+                            {item.attentionReasons.includes("FOLLOW_UP_REQUIRED") && (
+                              <p className="mt-1 text-xs text-nexa-ink">
+                                Customer says issue was not solved
+                                {item.overallRating != null
+                                  ? ` · Overall rating: ${item.overallRating}/5`
+                                  : ""}
+                                {item.agentRating != null
+                                  ? ` · Agent rating: ${item.agentRating}/5`
+                                  : ""}
+                              </p>
+                            )}
+                          </div>
+                          <RelativeTime
+                            value={item.createdAt}
+                            className="text-[11px] text-nexa-ink-4"
+                          />
                         </div>
-                        <RelativeTime
-                          value={item.createdAt}
-                          className="text-[11px] text-nexa-ink-4"
-                        />
-                      </div>
-                      <div className="mt-2 flex flex-wrap gap-1">
-                        {item.attentionReasons.map((reason) => (
-                          <Badge key={reason} variant="neutral">
-                            {reasonLabel(reason)}
-                          </Badge>
-                        ))}
-                      </div>
-                    </Link>
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {item.attentionReasons.map((reason) => (
+                            <Badge key={reason} variant="neutral">
+                              {reasonLabel(reason)}
+                            </Badge>
+                          ))}
+                        </div>
+                      </Link>
+                      {item.attentionReasons.includes("FOLLOW_UP_REQUIRED") && (
+                        <div className="mt-2 flex flex-wrap gap-2 px-0 pb-1">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={attentionBusy === item.ticketId}
+                            onClick={() => {
+                              setAttentionBusy(item.ticketId);
+                              void reopenTicket(item.ticketId)
+                                .then(() => {
+                                  router.push(
+                                    `/support?ticket=${encodeURIComponent(item.ticketId)}`,
+                                  );
+                                  refresh();
+                                })
+                                .finally(() => setAttentionBusy(null));
+                            }}
+                          >
+                            Reopen
+                          </Button>
+                          {item.followUpSignalId && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={attentionBusy === item.ticketId}
+                              onClick={() => {
+                                const signalId = item.followUpSignalId;
+                                if (!signalId) return;
+                                setAttentionBusy(item.ticketId);
+                                void patchOperationalSignal(signalId, "RESOLVED")
+                                  .then(() => refresh())
+                                  .finally(() => setAttentionBusy(null));
+                              }}
+                            >
+                              Mark reviewed
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </li>
                 ))}
               </ul>

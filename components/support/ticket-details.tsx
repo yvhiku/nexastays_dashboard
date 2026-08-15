@@ -418,6 +418,14 @@ function SignalCard({
       setSaving(false);
     }
   }
+  async function resolveFollowUp() {
+    setSaving(true);
+    try {
+      onAcknowledged(await patchOperationalSignal(signal.id, "RESOLVED"));
+    } finally {
+      setSaving(false);
+    }
+  }
   return (
     <div className="rounded-md border border-nexa-line bg-nexa-bg-2 px-3 py-2">
       <p className="text-xs font-semibold text-nexa-ink">
@@ -431,7 +439,18 @@ function SignalCard({
         {" · "}
         {signal.status}
       </p>
-      {signal.status === "ACTIVE" && (
+      {signal.status === "ACTIVE" && signal.type === "FOLLOW_UP_REQUIRED" && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="mt-2"
+          disabled={saving}
+          onClick={() => void resolveFollowUp()}
+        >
+          Mark reviewed
+        </Button>
+      )}
+      {signal.status === "ACTIVE" && signal.type !== "FOLLOW_UP_REQUIRED" && (
         <Button
           size="sm"
           variant="outline"

@@ -22,7 +22,29 @@ export function formatActivityAction(
     if (!toId) {
       return fromId ? `Unassigned from ${nameFor(fromId)}` : "Unassigned";
     }
-    return `Assigned to ${nameFor(toId)}`;
+    const assigned = `Assigned to ${nameFor(toId)}`;
+    if (metadata?.source === "AUTO") {
+      const bits = ["Automatically assigned to " + (nameFor(toId) ?? "an agent")];
+      if (metadata.categoryMatch) bits.push("Category match");
+      if (metadata.languageMatch) {
+        const language = String(metadata.language ?? "").toLowerCase();
+        bits.push(
+          language === "fr"
+            ? "French"
+            : language === "ar"
+              ? "Arabic"
+              : language === "en"
+                ? "English"
+                : "Language match",
+        );
+      }
+      if (metadata.routingScore != null) bits.push(`Routing score ${metadata.routingScore}`);
+      return bits.join(" · ");
+    }
+    return assigned;
+  }
+  if (action === "support_ticket_reopened") {
+    return "Ticket reopened";
   }
   return action.replace(/_/g, " ");
 }
@@ -39,6 +61,7 @@ export function signalChip(type: string) {
   if (type === "REPEAT_REPORT" || type === "REPEAT_SAFETY_REPORT") return "Repeat Reports";
   if (type === "UNASSIGNED_HIGH_PRIORITY") return "Unassigned High Priority";
   if (type === "MULTIPLE_OPEN_TICKETS") return "Multiple Open Tickets";
+  if (type === "FOLLOW_UP_REQUIRED") return "Follow-up required";
   return type.replace(/_/g, " ");
 }
 

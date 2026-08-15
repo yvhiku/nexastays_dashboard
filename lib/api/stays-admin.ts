@@ -1582,6 +1582,13 @@ export async function fetchTicket(ticketId: string): Promise<TicketDetail> {
     csat,
     signals: mapSignalList(row.signals),
     relatedTickets: mapRelatedTickets(row.related_tickets ?? row.relatedTickets),
+    viewers: Array.isArray(row.viewers)
+      ? (row.viewers as Record<string, unknown>[]).map((viewer) => ({
+          viewerId: String(viewer.viewerId ?? viewer.viewer_id ?? ""),
+          lastSeenAt: String(viewer.lastSeenAt ?? viewer.last_seen_at ?? ""),
+          expiresAt: String(viewer.expiresAt ?? viewer.expires_at ?? ""),
+        }))
+      : [],
   };
 }
 
@@ -1604,6 +1611,51 @@ export async function sendTicketMessage(ticketId: string, body: string) {
   return apiFetch(`/admin/stays/support/tickets/${ticketId}/messages`, {
     method: "POST",
     body: JSON.stringify({ body }),
+  });
+}
+
+export async function reopenTicket(
+  ticketId: string,
+  reason = "CUSTOMER_UNRESOLVED",
+): Promise<Ticket> {
+  const row = await apiFetch<Record<string, unknown>>(
+    `/admin/stays/support/tickets/${ticketId}/reopen`,
+    {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    },
+  );
+  return mapTicket(row);
+}
+
+export async function putTicketPresence(ticketId: string): Promise<void> {
+  await apiFetch(`/admin/stays/support/tickets/${ticketId}/presence`, {
+    method: "PUT",
+  });
+}
+
+export async function fetchSupportAgentSkills(agentId: string): Promise<{
+  agentUserId: string;
+  languages: string[];
+  categories: string[];
+}> {
+  const row = await apiFetch<Record<string, unknown>>(
+    `/admin/stays/support/agents/${encodeURIComponent(agentId)}/skills`,
+  );
+  return {
+    agentUserId: String(row.agentUserId ?? row.agent_user_id ?? agentId),
+    languages: Array.isArray(row.languages) ? row.languages.map(String) : [],
+    categories: Array.isArray(row.categories) ? row.categories.map(String) : [],
+  };
+}
+
+export async function putSupportAgentSkills(
+  agentId: string,
+  input: { languages: string[]; categories: string[] },
+): Promise<void> {
+  await apiFetch(`/admin/stays/support/agents/${encodeURIComponent(agentId)}/skills`, {
+    method: "PUT",
+    body: JSON.stringify(input),
   });
 }
 
@@ -1944,6 +1996,23 @@ export async function fetchSupportAttention(query: {
     attentionReasons: Array.isArray(row.attentionReasons ?? row.attention_reasons)
       ? ((row.attentionReasons ?? row.attention_reasons) as unknown[]).map(String)
       : [],
+    followUpSignalId: (row.followUpSignalId ??
+      row.follow_up_signal_id ??
+      null) as string | null,
+    overallRating:
+      row.overallRating == null && row.overall_rating == null
+        ? null
+        : Number(row.overallRating ?? row.overall_rating),
+    agentRating:
+      row.agentRating == null && row.agent_rating == null
+        ? null
+        : Number(row.agentRating ?? row.agent_rating),
+    problemSolved:
+      row.problemSolved ?? row.problem_solved ?? null
+        ? Boolean(row.problemSolved ?? row.problem_solved)
+        : row.problemSolved === false || row.problem_solved === false
+          ? false
+          : null,
   }));
   const limit = Number(data.limit ?? query.limit ?? 20);
   const offset = Number(data.offset ?? query.offset ?? 0);
