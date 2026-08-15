@@ -474,7 +474,16 @@ export default function SupportOperationsPage() {
                         ))}
                       </div>
                       <p className="mt-2 text-[11px] text-nexa-ink-4">
-                        Escalated {agent.escalated} · At risk {agent.atRisk} · Breached {agent.breached}
+                        Escalated {agent.escalated} · At risk {agent.atRisk} · Breached{" "}
+                        {agent.breached}
+                        {agent.oldestActiveTicketAt
+                          ? ` · Oldest ${new Date(agent.oldestActiveTicketAt).toLocaleDateString("en-GB")}`
+                          : ""}
+                        {` · Avg rating ${
+                          agent.averageAgentRating != null
+                            ? agent.averageAgentRating.toFixed(1)
+                            : "—"
+                        } · ${agent.reviewCount} review${agent.reviewCount === 1 ? "" : "s"}`}
                         {(() => {
                           const metrics = metricsById.get(agent.id);
                           if (!metrics) return "";
@@ -492,15 +501,6 @@ export default function SupportOperationsPage() {
                               : "—";
                           return ` · Last 30d closed ${metrics.closedCount} · Reopened ${metrics.reopenedCount} · Solved ${solved} · Agent ${rating} · ${metrics.reviewCount} reviews · Avg first response ${response}`;
                         })()}
-                      </p>
-                        {agent.oldestActiveTicketAt
-                          ? ` · Oldest ${new Date(agent.oldestActiveTicketAt).toLocaleDateString("en-GB")}`
-                          : ""}
-                        {` · Avg rating ${
-                          agent.averageAgentRating != null
-                            ? agent.averageAgentRating.toFixed(1)
-                            : "—"
-                        } · ${agent.reviewCount} review${agent.reviewCount === 1 ? "" : "s"}`}
                       </p>
                     </Link>
                   );
