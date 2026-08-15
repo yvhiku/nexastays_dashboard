@@ -1,7 +1,7 @@
 import React from "react";
 import type { Metadata } from "next";
 import { headers } from "next/headers";
-import { Playfair_Display, DM_Sans } from "next/font/google";
+import { playfair, dmSans } from "@/app/fonts/brand-fonts";
 import "./globals.css";
 import { AuthProvider } from "@/components/providers/auth-provider";
 
@@ -12,20 +12,6 @@ export const metadata: Metadata = {
     icon: [{ url: "/images/nexastays.png", type: "image/png" }],
   },
 };
-
-const playfair = Playfair_Display({
-  subsets: ["latin"],
-  variable: "--font-playfair",
-  weight: ["400", "500", "600", "700"],
-  display: "swap",
-});
-
-const dmSans = DM_Sans({
-  subsets: ["latin"],
-  variable: "--font-dm-sans",
-  weight: ["300", "400", "500", "600", "700"],
-  display: "swap",
-});
 
 export default async function RootLayout({
   children,

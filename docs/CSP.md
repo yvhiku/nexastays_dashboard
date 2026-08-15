@@ -18,7 +18,7 @@
 | `style-src` | `'self' 'unsafe-inline'` | **Accepted residual** — React `style={{…}}` + Tailwind |
 | `img-src` | `'self' data: blob:` | Local assets + `URL.createObjectURL` listing/doc previews |
 | `media-src` | `'self' blob:` | Walkthrough `<video>` from blob URLs |
-| `font-src` | `'self'` | `next/font/google` self-hosts under `/_next/static` |
+| `font-src` | `'self'` | `next/font/local` self-hosts under `/_next/static` |
 | `connect-src` | `'self'` + Identity + Stays origins from `NEXT_PUBLIC_*_API_URL` | Only dashboard API clients |
 | `frame-src` | `'none'` | No iframes/Sumsub in dashboard |
 | `object-src` | `'none'` | |
