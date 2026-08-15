@@ -1271,6 +1271,7 @@ function mapTicketCsat(row: Record<string, unknown> | null | undefined): TicketC
   if (!csatRow) return undefined;
   const agentRatingRaw = csatRow.agent_rating ?? csatRow.agentRating;
   const agentIdRaw = csatRow.agent_id ?? csatRow.agentId;
+  const solvedRaw = csatRow.problem_solved ?? csatRow.problemSolved;
   return {
     rating: Number(csatRow.rating ?? 0),
     comment: (csatRow.comment as string | null | undefined) ?? null,
@@ -1280,6 +1281,10 @@ function mapTicketCsat(row: Record<string, unknown> | null | undefined): TicketC
         ? null
         : Number(agentRatingRaw),
     agentId: agentIdRaw == null || agentIdRaw === "" ? null : String(agentIdRaw),
+    problemSolved:
+      solvedRaw == null || solvedRaw === ""
+        ? null
+        : Boolean(solvedRaw),
   };
 }
 

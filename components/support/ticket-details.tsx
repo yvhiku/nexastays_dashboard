@@ -315,11 +315,28 @@ export function TicketDetails({
 
       {csat && (
         <Section title="CSAT">
-          <p className="mt-2 text-sm text-nexa-ink-3">
-            Overall: {csat.rating}/5
-            {csat.agentRating != null ? ` · Agent: ${csat.agentRating}/5` : ""}
-            {csat.comment ? ` — “${csat.comment}”` : ""}
-          </p>
+          <div className="mt-2 space-y-1 text-sm text-nexa-ink-3">
+            <p>
+              Solved:{" "}
+              {csat.problemSolved == null
+                ? "Not recorded"
+                : csat.problemSolved
+                  ? "Yes"
+                  : "No"}
+            </p>
+            <p>Overall: {csat.rating}/5</p>
+            {csat.agentRating != null ? <p>Agent: {csat.agentRating}/5</p> : null}
+            {csat.comment ? (
+              <p className="rounded-md bg-nexa-bg-2 px-3 py-2 text-nexa-ink-2">
+                {csat.comment}
+              </p>
+            ) : null}
+            {csat.submittedAt ? (
+              <p className="text-[11px] text-nexa-ink-4">
+                Submitted {new Date(csat.submittedAt).toLocaleString("en-GB")}
+              </p>
+            ) : null}
+          </div>
         </Section>
       )}
 

@@ -275,6 +275,7 @@ export interface TicketCsat {
   submittedAt: string;
   agentRating?: number | null;
   agentId?: string | null;
+  problemSolved?: boolean | null;
 }
 
 export interface CannedReply {
